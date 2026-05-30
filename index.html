@@ -3,12 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Estúdio de Visagismo 3D & Análise Natural</title>
+    <title>Estúdio de Visagismo 3D & Colorimetria Científica</title>
     
-    <!-- Pré-carregamento direto da IA de Pose do MediaPipe para evitar delays -->
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
-    
-    <!-- Folha de Estilos de Alto Contraste Borgonha e Branco Gelo -->
+    <!-- Folha de Estilos de Alto Impacto: Luxo Científico Escuro -->
     <link rel="stylesheet" href="index.css">
 </head>
 <body>
@@ -19,63 +16,87 @@
             <h1 class="logo-text">Estúdio de Visagismo 3D</h1>
             <div class="status-badge-container">
                 <span class="status-indicator"></span>
-                <span class="status-text">Motor Local Ativo</span>
+                <span class="status-text">Motor Interativo Ativo</span>
             </div>
         </header>
 
         <!-- 🏢 PAINEL PRINCIPAL SIMÉTRICO (2 COLUNAS) -->
         <main>
             <div class="scanner-grid">
-                <!-- COLUNA ESQUERDA: Scanner Corporal e Controles -->
+                <!-- COLUNA ESQUERDA: Scanner Corporal, Webcam e Controles de Calibração -->
                 <div class="scanner-panel">
+                    
+                    <!-- Dica de Interatividade (CAD-Style) -->
+                    <div class="canvas-interaction-tip" id="interaction-tip" style="display: none;">
+                        <span>💡</span>
+                        <span><strong>Calibração Dinâmica:</strong> Arraste os círculos articulares (Vermelhos) e o anel facial (Verde) diretamente na foto para atualizar a análise e as paletas instantaneamente!</span>
+                    </div>
+
                     <div class="scanner-view-container" id="drop-zone">
+                        
+                        <!-- HUD Inicial de Upload e Câmera -->
                         <div class="upload-hud" id="upload-hud">
-                            <div class="upload-icon">📤</div>
-                            <h3>Arraste sua foto ou clique para carregar</h3>
-                            <p>PNG, JPG ou JPEG (Corpo inteiro sob luz natural)</p>
-                            <button class="premium-btn" onclick="triggerFileInput()">Selecionar Foto</button>
+                            <div class="upload-icon">🧘‍♀️</div>
+                            <h3>Análise Visagista Digital Premium</h3>
+                            <p>Carregue uma foto de corpo inteiro ou utilize sua webcam para iniciar o mapeamento antropométrico de cores.</p>
+                            
+                            <div style="display: flex; gap: 12px; margin-top: 15px;">
+                                <button class="premium-btn" onclick="triggerFileInput()">Selecionar Foto</button>
+                                <button class="premium-btn accent" onclick="startWebcamCapture()">📷 Usar Câmera</button>
+                            </div>
+                            
                             <input type="file" id="image-input" class="file-input" accept="image/*" onchange="handleFileUpload(event)">
                         </div>
                         
+                        <!-- Visualizador Interativo de Canvas Duplo -->
                         <div class="canvas-container" id="canvas-container" style="display: none;">
                             <!-- Canvas 1: Imagem Original corrigida com AWB (Balanço de Brancos) -->
                             <canvas id="image-canvas" class="scanner-canvas"></canvas>
-                            <!-- Canvas 2: Mesh Neon do Esqueleto 3D (Borgonha e Gelo) -->
+                            <!-- Canvas 2: Mesh Neon do Esqueleto 3D (Borgonha, Gelo e Teal) -->
                             <canvas id="mesh-canvas" class="scanner-canvas"></canvas>
+                        </div>
+
+                        <!-- CÂMERA HUD DE CAPTURA AO VIVO -->
+                        <div class="webcam-hud-container" id="webcam-container">
+                            <video id="webcam-video" autoplay playsinline></video>
+                            <div class="webcam-controls">
+                                <button class="premium-btn" onclick="captureWebcamPhoto()">📸 Capturar Foto</button>
+                                <button class="premium-btn secondary" onclick="stopWebcamCapture()">❌ Cancelar</button>
+                            </div>
                         </div>
                     </div>
                     
                     <!-- Ações Rápidas do Visualizador -->
                     <div class="scanner-actions" style="display: none;" id="scanner-actions-bar">
-                        <button class="premium-btn" onclick="runAnalysisWorkflow()">✨ Reanalisar Cenas</button>
-                        <button class="premium-btn secondary" onclick="resetScanner()">🔄 Novo Scanner</button>
+                        <button class="premium-btn" onclick="runAnalysisWorkflow()">✨ Recalibrar AWB</button>
+                        <button class="premium-btn secondary" onclick="resetScanner()">🔄 Novo Escaneamento</button>
                     </div>
 
                     <!-- Calibração de Proporções Corporal -->
                     <div class="manual-control-card" style="display: none;" id="manual-tuning-panel">
                         <h3>Ajuste Fino de Proporções</h3>
-                        <p class="card-subtitle">Utilize os controles abaixo se desejar recalcular as métricas 3D e refinar os resultados.</p>
+                        <p class="card-subtitle">Utilize as barras se preferir recalibrar a largura dos eixos corporais linearmente.</p>
                         
                         <div class="slider-group">
                             <div class="slider-header">
                                 <span>Largura dos Ombros</span>
-                                <span id="shoulder-val">50%</span>
+                                <span id="shoulder-val">46%</span>
                             </div>
-                            <input type="range" class="slider-input" id="slider-shoulder" min="20" max="100" value="50" oninput="onManualTune()">
+                            <input type="range" class="slider-input" id="slider-shoulder" min="20" max="100" value="46" oninput="onManualTune()">
                         </div>
                         <div class="slider-group">
                             <div class="slider-header">
                                 <span>Medida da Cintura</span>
-                                <span id="waist-val">42%</span>
+                                <span id="waist-val">32%</span>
                             </div>
-                            <input type="range" class="slider-input" id="slider-waist" min="20" max="100" value="42" oninput="onManualTune()">
+                            <input type="range" class="slider-input" id="slider-waist" min="20" max="100" value="32" oninput="onManualTune()">
                         </div>
                         <div class="slider-group">
                             <div class="slider-header">
                                 <span>Largura dos Quadris</span>
-                                <span id="hip-val">50%</span>
+                                <span id="hip-val">46%</span>
                             </div>
-                            <input type="range" class="slider-input" id="slider-hip" min="20" max="100" value="50" oninput="onManualTune()">
+                            <input type="range" class="slider-input" id="slider-hip" min="20" max="100" value="46" oninput="onManualTune()">
                         </div>
                     </div>
                 </div>
@@ -84,15 +105,15 @@
                 <div class="results-panel">
                     <!-- Placeholder Inicial -->
                     <div class="results-placeholder" id="results-placeholder">
-                        <div class="placeholder-icon">🧘‍♀️</div>
+                        <div class="placeholder-icon">📐</div>
                         <h3>Aguardando Carregamento</h3>
-                        <p>A análise visagista matemática, balanço de brancos CIELAB e escaner corporal do MediaPipe serão executados 100% de forma automática na foto fornecida.</p>
+                        <p>A análise visagista matemática, o balanço de brancos CIELAB e o escaner corporal antropométrico serão processados em tempo real na foto fornecida.</p>
                     </div>
 
                     <!-- HUD de Resultados Ativos -->
                     <div class="visagist-results-hud" id="results-hud" style="display: none;">
-                        <div class="result-card">
-                            <div class="result-badge">Estação Cromática Pessoal</div>
+                        <div class="result-card colorimetric-card">
+                            <div class="result-badge">✨ Estação Cromática Pessoal (12 Estações)</div>
                             <div class="result-value" id="val-season">-</div>
                             <div class="result-description" id="desc-season">-</div>
                             
@@ -105,25 +126,25 @@
                         </div>
 
                         <div class="result-card">
-                            <div class="result-badge">Arquitetura Corporal Antropométrica</div>
+                            <div class="result-badge">📐 Arquitetura Corporal Antropométrica</div>
                             <div class="result-value" id="val-body">-</div>
                             <div class="result-description" id="desc-body">-</div>
                         </div>
 
                         <div class="result-card">
-                            <div class="result-badge">Diretrizes de Estilo e Modelagem</div>
+                            <div class="result-badge">🧥 Diretrizes de Estilo e Modelagem</div>
                             <div class="result-description">
-                                <strong>Cortes e Decotes:</strong> <span id="val-cuts">-</span><br><br>
-                                <strong>Tecidos Ideais:</strong> <span id="val-fabrics">-</span><br><br>
-                                <strong>Reflexo e Acabamento:</strong> <span id="val-finish">-</span><br><br>
-                                <strong>Acessórios Recomendados:</strong> <span id="val-accessories">-</span>
+                                <strong style="color: var(--accent);">Cortes e Decotes:</strong> <span id="val-cuts" style="color: var(--text-main);">-</span><br><br>
+                                <strong>Tecidos Recomendados:</strong> <span id="val-fabrics" style="color: var(--text-main);">-</span><br><br>
+                                <strong>Reflexo e Acabamento:</strong> <span id="val-finish" style="color: var(--text-main);">-</span><br><br>
+                                <strong>Acessórios Ideais:</strong> <span id="val-accessories" style="color: var(--text-main);">-</span>
                             </div>
                         </div>
 
                         <div class="result-card">
                             <div class="result-badge">👑 Alta Joalheria & Metais Nobres</div>
                             <div class="result-description">
-                                <div style="margin-bottom: 12px;">
+                                <div style="margin-bottom: 15px;">
                                     <strong>Metais Recomendados:</strong>
                                     <div id="metals-badge-row" class="jewelry-badge-row">
                                         <!-- Injetado via JS -->

@@ -1,288 +1,473 @@
 /**
- * 🕺 Scanner Corporal 3D & Motor Antropométrico Local
+ * 🕺 Scanner Corporal Interativo & Motor Antropométrico (100% Local)
  * 
- * Este arquivo lida com:
- * 1. Inicialização do MediaPipe Pose já pré-carregado no navegador.
- * 2. Análise matemática das larguras corporais e classificação visagista da silhueta.
- * 3. Desenho de esqueleto/Mesh cibernético neon de alta fidelidade em Borgonha e Branco Gelo.
+ * Este arquivo substitui a dependência externa instável do MediaPipe Pose por:
+ * 1. Um motor de landmarks corporais interativo e arrastável em tempo real (estilo CAD).
+ * 2. Um anel de amostragem facial móvel para colorimetria 100% precisa.
+ * 3. Classificação visagista de silhuetas calculada matematicamente sob demanda.
+ * 4. Renderização cibernética neon Borgonha/Rubi e Verde Neon no canvas.
  */
 
 class Scanner3DEngine {
     constructor() {
-        this.poseModel = null;
-        this.isModelLoaded = false;
-        this.currentBodyData = null;
+        this.canvas = null;
+        this.ctx = null;
+        this.onUpdateCallback = null;
+        this.draggedNode = null;
+        this.hitRadius = 15; // pixels de tolerância para clique
+
+        // Coordenadas relativas padrão (0.0 a 1.0) para os nós de calibração
+        this.nodes = {
+            face: { x: 0.50, y: 0.20, label: "Rosto (Cor da Pele)", isFace: true, radiusRel: 0.05 },
+            shoulderL: { x: 0.38, y: 0.34, label: "Ombro Esq" },
+            shoulderR: { x: 0.62, y: 0.34, label: "Ombro Dir" },
+            waistL: { x: 0.42, y: 0.50, label: "Cintura Esq" },
+            waistR: { x: 0.58, y: 0.50, label: "Cintura Dir" },
+            hipL: { x: 0.38, y: 0.65, label: "Quadril Esq" },
+            hipR: { x: 0.62, y: 0.65, label: "Quadril Dir" },
+            kneeL: { x: 0.40, y: 0.78, label: "Joelho Esq" },
+            kneeR: { x: 0.60, y: 0.78, label: "Joelho Dir" },
+            ankleL: { x: 0.41, y: 0.90, label: "Tornozelo Esq" },
+            ankleR: { x: 0.59, y: 0.90, label: "Tornozelo Dir" }
+        };
+
+        // Estado do laser de varredura cosmética
+        this.scanY = 0;
+        this.scanDirection = 1;
     }
 
     /**
-     * Inicializa a pose da IA local se a biblioteca estiver carregada globalmente
+     * Acopla o canvas de malha interativa e inicia os ouvintes de eventos de arrastar
      */
-    async initializeModel(onSuccessCallback) {
-        if (this.isModelLoaded) return true;
+    bindCanvas(canvasElement, onUpdateCallback) {
+        this.canvas = canvasElement;
+        this.ctx = this.canvas.getContext("2d");
+        this.onUpdateCallback = onUpdateCallback;
 
-        console.log("Inicializando MediaPipe Pose...");
+        // Limpar event listeners antigos
+        this.canvas.removeEventListener("mousedown", this.handleMouseDown);
+        this.canvas.removeEventListener("mousemove", this.handleMouseMove);
+        this.canvas.removeEventListener("mouseup", this.handleMouseUp);
+        this.canvas.removeEventListener("touchstart", this.handleTouchStart);
+        this.canvas.removeEventListener("touchmove", this.handleTouchMove);
+        this.canvas.removeEventListener("touchend", this.handleTouchEnd);
 
-        try {
-            if (window.Pose) {
-                this.poseModel = new window.Pose({
-                    locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
-                });
+        // Bind com o escopo atual
+        this.handleMouseDown = this.handleMouseDown.bind(this);
+        this.handleMouseMove = this.handleMouseMove.bind(this);
+        this.handleMouseUp = this.handleMouseUp.bind(this);
+        this.handleTouchStart = this.handleTouchStart.bind(this);
+        this.handleTouchMove = this.handleTouchMove.bind(this);
+        this.handleTouchEnd = this.handleTouchEnd.bind(this);
 
-                this.poseModel.setOptions({
-                    modelComplexity: 1,
-                    smoothLandmarks: true,
-                    minDetectionConfidence: 0.5,
-                    minTrackingConfidence: 0.5
-                });
-
-                this.poseModel.onResults((results) => {
-                    this.onPoseResults(results, onSuccessCallback);
-                });
-
-                this.isModelLoaded = true;
-                console.log("✅ Modelo MediaPipe Pose local inicializado e ativo!");
-                return true;
-            } else {
-                console.warn("window.Pose não encontrado. Executando em modo Heurístico de Ajuste Manual.");
-                return false;
-            }
-        } catch (e) {
-            console.error("Erro ao instanciar o MediaPipe Pose local:", e);
-            return false;
-        }
-    }
-
-    /**
-     * Processa a imagem no canvas e envia para a IA local
-     */
-    async processImage(imageElement) {
-        if (!this.isModelLoaded || !this.poseModel) {
-            return false;
-        }
+        // Registrar novos ouvintes
+        this.canvas.addEventListener("mousedown", this.handleMouseDown);
+        this.canvas.addEventListener("mousemove", this.handleMouseMove);
+        this.canvas.addEventListener("mouseup", this.handleMouseUp);
         
-        try {
-            await this.poseModel.send({ image: imageElement });
-            return true;
-        } catch (e) {
-            console.error("Erro ao enviar imagem ao MediaPipe local:", e);
-            return false;
-        }
+        this.canvas.addEventListener("touchstart", this.handleTouchStart, { passive: false });
+        this.canvas.addEventListener("touchmove", this.handleTouchMove, { passive: false });
+        this.canvas.addEventListener("touchend", this.handleTouchEnd);
+
+        // Iniciar animação do laser cibernético em background
+        this.startLaserAnimation();
+        this.redraw();
     }
 
     /**
-     * Evento acionado com os pontos articulares calculados pela IA
+     * Ajusta as coordenadas relativas baseadas nos controles deslizantes manuais
      */
-    onPoseResults(results, callback) {
-        if (!results || !results.poseLandmarks) {
-            console.warn("MediaPipe local: Nenhum ponto corporal detectado no quadro.");
-            if (callback) callback(null);
+    applySliderTuning(shoulderPct, waistPct, hipPct) {
+        const center = 0.5;
+        const shHalf = (shoulderPct / 100) * 0.4;
+        const waHalf = (waistPct / 100) * 0.4;
+        const hipHalf = (hipPct / 100) * 0.4;
+
+        this.nodes.shoulderL.x = center - shHalf;
+        this.nodes.shoulderR.x = center + shHalf;
+        this.nodes.waistL.x = center - waHalf;
+        this.nodes.waistR.x = center + waHalf;
+        this.nodes.hipL.x = center - hipHalf;
+        this.nodes.hipR.x = center + hipHalf;
+
+        this.redraw();
+        this.triggerUpdate();
+    }
+
+    /**
+     * Métricas de cliques do mouse e toques na tela
+     */
+    getCanvasCoords(e) {
+        const rect = this.canvas.getBoundingClientRect();
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        
+        // Retorna a posição mapeada proporcionalmente ao canvas real
+        return {
+            x: ((clientX - rect.left) / rect.width) * this.canvas.width,
+            y: ((clientY - rect.top) / rect.height) * this.canvas.height
+        };
+    }
+
+    findNearNode(canvasX, canvasY) {
+        const w = this.canvas.width;
+        const h = this.canvas.height;
+
+        for (const [key, node] of Object.entries(this.nodes)) {
+            const nodeX = node.x * w;
+            const nodeY = node.y * h;
+            const dist = Math.hypot(canvasX - nodeX, canvasY - nodeY);
+            
+            // Tolerância maior para o anel facial
+            const maxDist = node.isFace ? (node.radiusRel * w) + 10 : this.hitRadius;
+            
+            if (dist <= maxDist) {
+                return key;
+            }
+        }
+        return null;
+    }
+
+    handleMouseDown(e) {
+        e.preventDefault();
+        const coords = this.getCanvasCoords(e);
+        this.draggedNode = this.findNearNode(coords.x, coords.y);
+    }
+
+    handleMouseMove(e) {
+        if (!this.draggedNode) {
+            // Mudar cursor para pointer se estiver em cima de um nó
+            const coords = this.getCanvasCoords(e);
+            const nearNode = this.findNearNode(coords.x, coords.y);
+            this.canvas.style.cursor = nearNode ? "pointer" : "default";
             return;
         }
 
-        const landmarks = results.poseLandmarks;
-        const analysis = this.analyzeBodyMetrics(landmarks);
-        this.currentBodyData = analysis;
+        e.preventDefault();
+        const coords = this.getCanvasCoords(e);
         
-        if (callback) {
-            callback(analysis, landmarks);
+        // Limitar dentro das margens do canvas
+        const relX = Math.min(1.0, Math.max(0.0, coords.x / this.canvas.width));
+        const relY = Math.min(1.0, Math.max(0.0, coords.y / this.canvas.height));
+
+        this.nodes[this.draggedNode].x = relX;
+        this.nodes[this.draggedNode].y = relY;
+
+        // Se movermos os landmarks laterais, atualizar valores de sincronia dos sliders
+        this.syncNodesToSliders();
+
+        this.redraw();
+        this.triggerUpdate();
+    }
+
+    handleMouseUp(e) {
+        if (this.draggedNode) {
+            this.draggedNode = null;
+        }
+    }
+
+    handleTouchStart(e) {
+        if (e.touches.length > 0) {
+            const coords = this.getCanvasCoords(e);
+            this.draggedNode = this.findNearNode(coords.x, coords.y);
+            if (this.draggedNode) e.preventDefault();
+        }
+    }
+
+    handleTouchMove(e) {
+        if (this.draggedNode && e.touches.length > 0) {
+            e.preventDefault();
+            const coords = this.getCanvasCoords(e);
+            const relX = Math.min(1.0, Math.max(0.0, coords.x / this.canvas.width));
+            const relY = Math.min(1.0, Math.max(0.0, coords.y / this.canvas.height));
+            this.nodes[this.draggedNode].x = relX;
+            this.nodes[this.draggedNode].y = relY;
+            this.syncNodesToSliders();
+            this.redraw();
+            this.triggerUpdate();
+        }
+    }
+
+    handleTouchEnd(e) {
+        this.draggedNode = null;
+    }
+
+    /**
+     * Sincroniza a largura dos nós com os inputs/sliders da interface gráfica (se existirem)
+     */
+    syncNodesToSliders() {
+        if (this.draggedNode && this.draggedNode !== "face") {
+            const shWidth = Math.abs(this.nodes.shoulderR.x - this.nodes.shoulderL.x) * 125;
+            const waWidth = Math.abs(this.nodes.waistR.x - this.nodes.waistL.x) * 125;
+            const hipWidth = Math.abs(this.nodes.hipR.x - this.nodes.hipL.x) * 125;
+
+            const sliderSh = document.getElementById("slider-shoulder");
+            const sliderWa = document.getElementById("slider-waist");
+            const sliderHip = document.getElementById("slider-hip");
+
+            if (sliderSh) {
+                sliderSh.value = Math.round(Math.min(100, Math.max(20, shWidth)));
+                document.getElementById("shoulder-val").innerText = `${sliderSh.value}%`;
+            }
+            if (sliderWa) {
+                sliderWa.value = Math.round(Math.min(100, Math.max(20, waWidth)));
+                document.getElementById("waist-val").innerText = `${sliderWa.value}%`;
+            }
+            if (sliderHip) {
+                sliderHip.value = Math.round(Math.min(100, Math.max(20, hipWidth)));
+                document.getElementById("hip-val").innerText = `${sliderHip.value}%`;
+            }
+        }
+    }
+
+    triggerUpdate() {
+        if (this.onUpdateCallback) {
+            const metrics = this.analyzeBodyMetrics();
+            this.onUpdateCallback(metrics, this.nodes);
         }
     }
 
     /**
-     * Classificação Científica do Formato Corporal baseada em larguras 2D no plano
+     * Desenha toda a HUD cibernética e nós de landmarks arrastáveis
      */
-    analyzeBodyMetrics(landmarks) {
-        // Ombros: 11 (Esq), 12 (Dir) | Quadris: 23 (Esq), 24 (Dir)
-        const leftShoulder = landmarks[11];
-        const rightShoulder = landmarks[12];
-        const leftHip = landmarks[23];
-        const rightHip = landmarks[24];
+    redraw() {
+        if (!this.canvas || !this.ctx) return;
 
-        if (!leftShoulder || !rightShoulder || !leftHip || !rightHip) {
+        const w = this.canvas.width;
+        const h = this.canvas.height;
+
+        this.ctx.clearRect(0, 0, w, h);
+
+        const colorIce = "rgba(242, 244, 247, 0.85)";
+        const colorBurgundy = "rgba(217, 4, 41, 0.9)";
+        const colorTeal = "#00f5d4";
+
+        // 1. Desenhar Conexões do Esqueleto Cibernético
+        const connections = [
+            ["shoulderL", "shoulderR"],
+            ["shoulderL", "waistL"], ["shoulderR", "waistR"],
+            ["waistL", "hipL"], ["waistR", "hipR"],
+            ["hipL", "hipR"],
+            ["hipL", "kneeL"], ["kneeL", "ankleL"],
+            ["hipR", "kneeR"], ["kneeR", "ankleR"]
+        ];
+
+        this.ctx.strokeStyle = colorIce;
+        this.ctx.lineWidth = 2.5;
+        this.ctx.shadowBlur = 6;
+        this.ctx.shadowColor = "rgba(255, 255, 255, 0.4)";
+
+        connections.forEach(([p1, p2]) => {
+            const n1 = this.nodes[p1];
+            const n2 = this.nodes[p2];
+            if (n1 && n2) {
+                this.ctx.beginPath();
+                this.ctx.moveTo(n1.x * w, n1.y * h);
+                this.ctx.lineTo(n2.x * w, n2.y * h);
+                this.ctx.stroke();
+            }
+        });
+        
+        // Destacar a linha de silhueta da Cintura com Borgonha neon
+        const nWL = this.nodes.waistL;
+        const nWR = this.nodes.waistR;
+        if (nWL && nWR) {
+            this.ctx.strokeStyle = colorBurgundy;
+            this.ctx.lineWidth = 4;
+            this.ctx.shadowBlur = 10;
+            this.ctx.shadowColor = colorBurgundy;
+            this.ctx.beginPath();
+            this.ctx.moveTo(nWL.x * w, nWL.y * h);
+            this.ctx.lineTo(nWR.x * w, nWR.y * h);
+            this.ctx.stroke();
+        }
+
+        this.ctx.shadowBlur = 0; // Reset
+
+        // 2. Desenhar o Anel de Amostragem do Rosto (Face Ring)
+        const faceNode = this.nodes.face;
+        if (faceNode) {
+            const faceX = faceNode.x * w;
+            const faceY = faceNode.y * h;
+            const radius = faceNode.radiusRel * w;
+
+            // Halo pulsante externo
+            this.ctx.strokeStyle = colorTeal;
+            this.ctx.lineWidth = 2;
+            this.ctx.setLineDash([4, 4]);
+            this.ctx.shadowBlur = 12;
+            this.ctx.shadowColor = colorTeal;
+            this.ctx.beginPath();
+            this.ctx.arc(faceX, faceY, radius, 0, Math.PI * 2);
+            this.ctx.stroke();
+            this.ctx.setLineDash([]); // Reset dash
+
+            // Retículo central
+            this.ctx.fillStyle = colorTeal;
+            this.ctx.beginPath();
+            this.ctx.arc(faceX, faceY, 3, 0, Math.PI * 2);
+            this.ctx.fill();
+
+            // Etiqueta identificadora
+            this.ctx.shadowBlur = 0;
+            this.ctx.fillStyle = "rgba(7, 8, 10, 0.85)";
+            this.ctx.fillRect(faceX - 55, faceY - radius - 20, 110, 16);
+            this.ctx.strokeStyle = colorTeal;
+            this.ctx.lineWidth = 1;
+            this.ctx.strokeRect(faceX - 55, faceY - radius - 20, 110, 16);
+
+            this.ctx.fillStyle = colorIce;
+            this.ctx.font = "bold 9px monospace";
+            this.ctx.fillText("TOM DE PELE", faceX - 31, faceY - radius - 9);
+        }
+
+        // 3. Desenhar Nós Articulares Interativos Arrastáveis
+        for (const [key, node] of Object.entries(this.nodes)) {
+            if (node.isFace) continue; // Face já desenhado acima
+
+            const nx = node.x * w;
+            const ny = node.y * h;
+
+            // Halo ativo de seleção
+            const isDragging = this.draggedNode === key;
+            this.ctx.fillStyle = isDragging ? "rgba(0, 245, 212, 0.45)" : "rgba(217, 4, 41, 0.3)";
+            this.ctx.beginPath();
+            this.ctx.arc(nx, ny, 7.5, 0, Math.PI * 2);
+            this.ctx.fill();
+
+            // Ponto nuclear brilhante
+            this.ctx.fillStyle = isDragging ? colorTeal : colorIce;
+            this.ctx.beginPath();
+            this.ctx.arc(nx, ny, 3.5, 0, Math.PI * 2);
+            this.ctx.fill();
+        }
+
+        // 4. Desenhar a Linha de Varredura Laser Cosmética
+        this.ctx.strokeStyle = "rgba(217, 4, 41, 0.5)";
+        this.ctx.lineWidth = 1.5;
+        this.ctx.shadowBlur = 8;
+        this.ctx.shadowColor = colorBurgundy;
+        this.ctx.beginPath();
+        this.ctx.moveTo(0, this.scanY);
+        this.ctx.lineTo(w, this.scanY);
+        this.ctx.stroke();
+        this.ctx.shadowBlur = 0; // Reset
+
+        // 5. Escrever o Biotipo Calculado no HUD Interno do Canvas
+        const metrics = this.analyzeBodyMetrics();
+        if (metrics) {
+            this.ctx.fillStyle = "rgba(7, 8, 10, 0.9)";
+            this.ctx.fillRect(15, 15, 200, 48);
+            this.ctx.strokeStyle = colorBurgundy;
+            this.ctx.lineWidth = 1.5;
+            this.ctx.strokeRect(15, 15, 200, 48);
+
+            this.ctx.fillStyle = "rgba(217, 4, 41, 0.9)";
+            this.ctx.font = "bold 9px monospace";
+            this.ctx.fillText("BIOTIPO DETECTADO LIVE", 22, 28);
+            
+            this.ctx.fillStyle = colorIce;
+            this.ctx.font = "bold 14px 'Space Grotesk', sans-serif";
+            this.ctx.fillText(metrics.bodyType.toUpperCase(), 22, 48);
+        }
+    }
+
+    /**
+     * Animação do laser cosmético correndo pelo canvas em loop
+     */
+    startLaserAnimation() {
+        const animate = () => {
+            if (!this.canvas) return;
+            
+            const speed = 1.8;
+            this.scanY += speed * this.scanDirection;
+
+            if (this.scanY >= this.canvas.height) {
+                this.scanY = this.canvas.height;
+                this.scanDirection = -1;
+            } else if (this.scanY <= 0) {
+                this.scanY = 0;
+                this.scanDirection = 1;
+            }
+
+            this.redraw();
+            requestAnimationFrame(animate);
+        };
+        requestAnimationFrame(animate);
+    }
+
+    /**
+     * Classificação Científica Baseada nos Nós de Calibração Arrastáveis
+     */
+    analyzeBodyMetrics() {
+        const leftShoulder = this.nodes.shoulderL;
+        const rightShoulder = this.nodes.shoulderR;
+        const leftHip = this.nodes.hipL;
+        const rightHip = this.nodes.hipR;
+        const leftWaist = this.nodes.waistL;
+        const rightWaist = this.nodes.waistR;
+
+        if (!leftShoulder || !rightShoulder || !leftHip || !rightHip || !leftWaist || !rightWaist) {
             return null;
         }
 
-        const shoulderWidth = Math.hypot(leftShoulder.x - rightShoulder.x, leftShoulder.y - rightShoulder.y);
-        const hipWidth = Math.hypot(leftHip.x - rightHip.x, leftHip.y - rightHip.y);
-        
-        // Estimativa da linha da cintura
-        const leftWaistX = leftHip.x * 0.65 + leftShoulder.x * 0.35;
-        const leftWaistY = leftHip.y * 0.65 + leftShoulder.y * 0.35;
-        const rightWaistX = rightHip.x * 0.65 + rightShoulder.x * 0.35;
-        const rightWaistY = rightHip.y * 0.65 + rightShoulder.y * 0.35;
-        
-        const waistWidth = Math.hypot(leftWaistX - rightWaistX, leftWaistY - rightWaistY);
+        // Largura linear nos eixos 2D
+        const shoulderWidth = Math.abs(rightShoulder.x - leftShoulder.x);
+        const hipWidth = Math.abs(rightHip.x - leftHip.x);
+        const waistWidth = Math.abs(rightWaist.x - leftWaist.x);
 
-        const waistToHip = waistWidth / hipWidth;
-        const waistToShoulder = waistWidth / shoulderWidth;
-        const shoulderToHip = shoulderWidth / hipWidth;
+        const waistToHip = waistWidth / (hipWidth || 1);
+        const waistToShoulder = waistWidth / (shoulderWidth || 1);
+        const shoulderToHip = shoulderWidth / (hipWidth || 1);
 
         let bodyType = "";
         let description = "";
         let lookTips = {};
 
-        if (waistToHip <= 0.78 && waistToShoulder <= 0.78 && shoulderToHip >= 0.85 && shoulderToHip <= 1.15) {
+        // Regras visagistas matemáticas formais
+        if (waistToHip <= 0.77 && waistToShoulder <= 0.77 && shoulderToHip >= 0.88 && shoulderToHip <= 1.12) {
             bodyType = "Ampulheta";
-            description = "Sua silhueta corporal apresenta largura de ombros e quadril em perfeita simetria linear, com uma cintura marcadamente definida. O caimento clássico e elegante é o foco principal.";
+            description = "Silhueta com largura de ombros e quadril em perfeita proporção linear, com cintura extremamente definida. O foco principal é valorizar e acompanhar as curvas originais.";
             lookTips = {
-                idealCuts: "Decotes em V e U, vestidos transpassados, saias evasê e marcações na cintura natural.",
-                accessories: "Cintos de espessura média marcando a cintura alta, maxi colares que alongam o busto.",
-                avoid: "Modelagens retas sem costura que apagam o equilíbrio natural do corpo."
+                idealCuts: "Decotes em V e U profundos, transpassados (wrap dress) marcando a cintura natural, saias evasê e calças de cintura alta estruturada.",
+                accessories: "Cintos elegantes na cintura alta, maxi-colares que alongam o busto e brincos esbeltos.",
+                avoid: "Modelagens retas amplas sem pregas que camuflam a harmonia natural."
             };
-        } else if (waistToHip > 0.78 && waistToShoulder > 0.78 && shoulderToHip >= 0.88 && shoulderToHip <= 1.12) {
+        } else if (waistToHip > 0.77 && waistToShoulder > 0.77 && shoulderToHip >= 0.88 && shoulderToHip <= 1.12) {
             bodyType = "Retângulo";
-            description = "Silhueta reta onde os ombros, cintura e quadril possuem larguras equivalentes. As diretrizes são orientadas a criar a ilusão de curvas.";
+            description = "Silhueta reta onde os ombros, cintura e quadril estão na mesma linha de projeção. O design visa criar uma ilusão ótica de curvas e volume tridimensional.";
             lookTips = {
-                idealCuts: "Blusas peplum, recortes estratégicos laterais, blazers estruturados acinturados por cinto fino.",
-                accessories: "Cintos finos marcando cintura alta, brincos longos e geométricos.",
-                avoid: "Vestidos tubo soltos e blusões de caimento reto sem marcações."
+                idealCuts: "Blusas peplum, recortes estratégicos nas costuras laterais, saias plissadas ou rodadas godê, e blazers estruturados acinturados por cinto fino.",
+                accessories: "Cintos finos marcando cintura, brincos volumosos de design geométrico e lenços texturizados.",
+                avoid: "Modelagens retas amplas de caimento duro, vestidos tubinho de malha fina sem costuras."
             };
         } else if (hipWidth > shoulderWidth * 1.05) {
             bodyType = "Triângulo (Pêra)";
-            description = "O quadril apresenta-se mais largo que a linha dos ombros, com cintura estreita. Equilibramos a silhueta valorizando a região do colo e os ombros.";
+            description = "A linha do quadril é visivelmente mais larga que os ombros, com uma cintura bem delineada. O objetivo é expandir horizontalmente a parte superior para balancear a silhueta.";
             lookTips = {
-                idealCuts: "Decote ombro a ombro, mangas bufantes, blusas com babados e calças retas escuras.",
-                accessories: "Maxi colares expressivos, brincos chamativos que atraem o olhar para o rosto.",
-                avoid: "Saias rodadas volumosas na altura do quadril e calças skinny claras."
+                idealCuts: "Decote ombro a ombro, mangas bufantes sofisticadas, babados no colo, cores claras no tronco e calças escuras retas na parte inferior.",
+                accessories: "Maxi colares expressivos de pedrarias, brincos volumosos que chamam atenção para o semblante.",
+                avoid: "Saias com pregas largas nos quadris, detalhes de bolsos laterais ou calças jeans tipo skinny clara."
             };
         } else if (shoulderWidth > hipWidth * 1.05) {
             bodyType = "Triângulo Invertido";
-            description = "Ombros e costas largos em relação ao quadril. Suavizamos a linha superior criando volume e movimento na parte inferior.";
+            description = "Silhueta com ombros marcantes e costas largas em relação ao quadril. O objetivo é suavizar o tronco e agregar volume, textura e detalhes na metade inferior do corpo.";
             lookTips = {
-                idealCuts: "Calças pantalona ou cargo volumosas, saias rodadas ou plissadas, decotes em V profundos.",
-                accessories: "Pulseiras largas de metal polido, bolsas de alça longa que caem na altura do quadril.",
-                avoid: "Mangas com ombreiras volumosas e golas altas pesadas."
+                idealCuts: "Calças pantalona ou cargo com bolsos volumosos, saias godê ou evasê plissadas, decote transpassado profundo e blusas fluidas sem ombreiras.",
+                accessories: "Pulseiras largas de metal ou resina que chamam atenção para as mãos, bolsas de alça longa cruzadas na altura do quadril.",
+                avoid: "Ombreiras estruturadas, decotes canoa muito amplos e golas altas de tricot encorpado."
             };
         } else {
             bodyType = "Oval";
-            description = "Silhueta caracterizada por linhas suaves e arredondadas com a linha da cintura sobressaindo levemente. O foco é alongar o tronco.";
+            description = "Silhueta com linhas suaves e arredondadas, onde a linha da cintura sobressai levemente. O foco do visagismo é alongar o tronco e valorizar o colo e as pernas.";
             lookTips = {
-                idealCuts: "Corte império marcando logo abaixo do busto, blazers longos abertos criando linhas verticais.",
-                accessories: "Colares longos em V, brincos alongados e saltos que expõem o peito do pé.",
-                avoid: "Golas altas robustas e cintos excessivamente apertados no centro do abdômen."
+                idealCuts: "Corte império marcando logo abaixo do busto, blazers longos abertos criando linhas verticais, decotes em V marcantes e vestidos fluidos soltos.",
+                accessories: "Colares longos lineares, brincos de linha alongada e sapatos do tipo scarpin que deixam o peito do pé exposto.",
+                avoid: "Golas altas volumosas, cintos grossos apertando o abdômen e roupas excessivamente coladas."
             };
         }
 
         return { bodyType, description, lookTips };
-    }
-
-    /**
-     * Desenha a malha cibernética futurista em Borgonha e Gelo no Canvas
-     */
-    static drawCyberMesh(ctx, landmarks, width, height, bodyType) {
-        ctx.clearRect(0, 0, width, height);
-
-        const colorGelo = "rgba(242, 244, 247, 0.85)";  // Branco Gelo translúcido
-        const colorBorgonha = "rgba(163, 0, 0, 0.95)";  // Borgonha de alto impacto
-        
-        // Linha do Laser de Varredura Corporal
-        const time = Date.now() * 0.003;
-        const scanY = (Math.sin(time) * 0.5 + 0.5) * height;
-        ctx.strokeStyle = colorBorgonha;
-        ctx.lineWidth = 1.5;
-        ctx.shadowBlur = 10;
-        ctx.shadowColor = "rgb(163, 0, 0)";
-        ctx.beginPath();
-        ctx.moveTo(0, scanY);
-        ctx.lineTo(width, scanY);
-        ctx.stroke();
-        ctx.shadowBlur = 0; // Reset
-
-        if (!landmarks) return;
-
-        // Conexões articulares
-        const connections = [
-            [11, 12], // Ombros
-            [11, 23], [12, 24], // Tronco
-            [23, 24], // Quadris
-            [11, 13], [13, 15], // Braço Esq
-            [12, 14], [14, 16], // Braço Dir
-            [23, 25], [25, 27], // Perna Esq
-            [24, 26], [26, 28]  // Perna Dir
-        ];
-
-        // 1. Desenhar conexões de neon (Branco Gelo)
-        ctx.strokeStyle = colorGelo;
-        ctx.lineWidth = 2;
-        ctx.shadowBlur = 6;
-        ctx.shadowColor = "rgba(255, 255, 255, 0.5)";
-
-        connections.forEach(([p1, p2]) => {
-            const pt1 = landmarks[p1];
-            const pt2 = landmarks[p2];
-            if (pt1 && pt2) {
-                ctx.beginPath();
-                ctx.moveTo(pt1.x * width, pt1.y * height);
-                ctx.lineTo(pt2.x * width, pt2.y * height);
-                ctx.stroke();
-            }
-        });
-        
-        ctx.shadowBlur = 0;
-
-        // 2. Destacar Linha da Cintura (Borgonha)
-        const ptLS = landmarks[11];
-        const ptRS = landmarks[12];
-        const ptLH = landmarks[23];
-        const ptRH = landmarks[24];
-        
-        if (ptLS && ptRS && ptLH && ptRH) {
-            const wLX = (ptLH.x * 0.65 + ptLS.x * 0.35) * width;
-            const wLY = (ptLH.y * 0.65 + ptLS.y * 0.35) * height;
-            const wRX = (ptRH.x * 0.65 + ptRS.x * 0.35) * width;
-            const wRY = (ptRH.y * 0.65 + ptRS.y * 0.35) * height;
-            
-            ctx.strokeStyle = colorBorgonha;
-            ctx.lineWidth = 3.5;
-            ctx.shadowBlur = 10;
-            ctx.shadowColor = "rgb(163, 0, 0)";
-            ctx.beginPath();
-            ctx.moveTo(wLX, wLY);
-            ctx.lineTo(wRX, wRY);
-            ctx.stroke();
-            ctx.shadowBlur = 0;
-
-            ctx.fillStyle = colorGelo;
-            ctx.font = "bold 9px monospace";
-            ctx.fillText("CINTURA", (wLX + wRX)/2 - 22, (wLY + wRY)/2 - 6);
-        }
-
-        // 3. Articulações brilhantes (Nós)
-        const joints = [11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28];
-        joints.forEach((id) => {
-            const pt = landmarks[id];
-            if (pt) {
-                const px = pt.x * width;
-                const py = pt.y * height;
-                
-                ctx.fillStyle = "rgba(163, 0, 0, 0.4)";
-                ctx.beginPath();
-                ctx.arc(px, py, 6, 0, Math.PI * 2);
-                ctx.fill();
-
-                ctx.fillStyle = colorGelo;
-                ctx.beginPath();
-                ctx.arc(px, py, 2.5, 0, Math.PI * 2);
-                ctx.fill();
-            }
-        });
-
-        // 4. Exibir o biotipo detectado no visualizador
-        if (bodyType) {
-            ctx.fillStyle = "rgba(255, 255, 255, 0.95)";
-            ctx.fillRect(15, 15, 175, 42);
-            ctx.strokeStyle = colorBorgonha;
-            ctx.lineWidth = 1.5;
-            ctx.strokeRect(15, 15, 175, 42);
-
-            ctx.fillStyle = "rgba(163, 0, 0, 0.85)";
-            ctx.font = "bold 8px system-ui, sans-serif";
-            ctx.fillText("TIPO DE CORPO IDENTIFICADO:", 22, 26);
-            
-            ctx.fillStyle = "#212529";
-            ctx.font = "bold 13px system-ui, sans-serif";
-            ctx.fillText(bodyType.toUpperCase(), 22, 43);
-        }
     }
 }
 
