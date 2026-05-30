@@ -25,21 +25,25 @@ let rawImageDataBytes = null; // Buffer original intocado do upload para múltip
 
 // Ao carregar a página, inicializa o motor de calibração interativo e carrega a IA
 window.addEventListener("DOMContentLoaded", () => {
-    scannerEngine = new Scanner3DEngine();
-    
-    // Associar eventos de arrastar no canvas de malha (mesh-canvas)
-    const meshCanvas = document.getElementById("mesh-canvas");
-    if (meshCanvas) {
-        scannerEngine.bindCanvas(meshCanvas, (metrics, nodes) => {
-            handleInteractionUpdate(metrics, nodes);
-        });
+    try {
+        scannerEngine = new Scanner3DEngine();
+        
+        // Associar eventos de arrastar no canvas de malha (mesh-canvas)
+        const meshCanvas = document.getElementById("mesh-canvas");
+        if (meshCanvas) {
+            scannerEngine.bindCanvas(meshCanvas, (metrics, nodes) => {
+                handleInteractionUpdate(metrics, nodes);
+            });
 
-        // Registrar ouvinte de clique no canvas para o modo Pipeta Conta-Gotas
-        meshCanvas.addEventListener("click", handleCanvasPipetteClick);
+            // Registrar ouvinte de clique no canvas para o modo Pipeta Conta-Gotas
+            meshCanvas.addEventListener("click", handleCanvasPipetteClick);
+        }
+
+        // Configurar a zona de drag and drop de arquivos de imagem no painel do scanner
+        setupDragAndDrop();
+    } catch (err) {
+        console.error("Erro ao inicializar o Scanner3DEngine:", err);
     }
-
-    // Configurar a zona de drag and drop de arquivos de imagem no painel do scanner
-    setupDragAndDrop();
 
     // Carregar assincronamente o detector de pose TensorFlow.js BlazePose
     loadPoseDetectorModel();

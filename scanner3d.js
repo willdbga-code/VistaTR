@@ -432,6 +432,7 @@ class Scanner3DEngine {
         const nHL = this.nodes.hipL;
         const nHR = this.nodes.hipR;
         const nChest = this.nodes.chest;
+        const faceNode = this.nodes.face;
 
         if (nSL && nSR && nWL && nWR && nHL && nHR && nChest) {
             const subdivisionsY = 11; 
