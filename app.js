@@ -52,20 +52,30 @@ async function loadPoseDetectorModel() {
     const indicator = document.getElementById("ia-indicator");
     const text = document.getElementById("ia-text");
 
+    setAiProgress(5, "Inicializando motor IA: 5%");
+
     // Limite de 4.5 segundos para carregar o modelo antes de acionar o Fallback manual
     const timeoutPromise = new Promise((_, reject) => {
         setTimeout(() => reject(new Error("Timeout limite de rede atingido ao carregar modelo de IA")), 4500);
     });
 
+    let progressInterval = null;
+
     const initPromise = async () => {
+        setAiProgress(10, "Verificando dependências: 10%");
+        
         // Verificar se as dependências do script falharam por CORS local (file://)
         if (typeof tf === "undefined" || typeof poseDetection === "undefined") {
             throw new Error("Scripts do TensorFlow.js bloqueados ou falharam ao carregar.");
         }
 
+        setAiProgress(15, "Carregando núcleo TensorFlow.js...");
         // Inicializar TF.js
         await tf.ready();
+        setAiProgress(22, "Ativando acelerador gráfico GPU...");
         await tf.setBackend("webgl");
+        
+        setAiProgress(32, "Conectando ao banco neural...");
         
         console.log("[TensorFlow.js] Carregando modelo BlazePose (LITE)...");
         const model = poseDetection.SupportedModels.BlazePose;
@@ -75,7 +85,21 @@ async function loadPoseDetectorModel() {
             enableSmoothing: true
         };
         
+        setAiProgress(40, "Baixando pesos BlazePose LITE (4MB)...");
+
+        // Simular o progresso do download de pesos de rede na rede
+        let currentPct = 40;
+        progressInterval = setInterval(() => {
+            if (currentPct < 85) {
+                currentPct += 4;
+                setAiProgress(currentPct, `Baixando modelo neural: ${currentPct}%`);
+            }
+        }, 90);
+        
         tfDetectorModel = await poseDetection.createDetector(model, detectorConfig);
+        
+        clearInterval(progressInterval);
+        setAiProgress(92, "Compilando tensores da GPU...");
         console.log("✅ [TensorFlow.js] BlazePose LITE carregado com sucesso!");
     };
 
@@ -83,19 +107,67 @@ async function loadPoseDetectorModel() {
         // Executa carregamento com limite de tempo estrito
         await Promise.race([initPromise(), timeoutPromise]);
 
+        setAiProgress(100, "IA Pronta!");
+
         if (indicator && text) {
             indicator.style.backgroundColor = "#00f5d4";
             indicator.style.boxShadow = "0 0 10px #00f5d4";
             text.innerText = "IA Pronta";
         }
+
+        // Desvanecer suavemente a barra de progresso após o sucesso
+        setTimeout(() => {
+            const container = document.getElementById("ai-progress-container");
+            if (container) {
+                container.style.opacity = "0";
+                container.style.height = "0px";
+                container.style.marginBottom = "0px";
+                container.style.border = "none";
+            }
+        }, 1200);
     } catch (err) {
+        if (progressInterval) clearInterval(progressInterval);
         console.warn("[IA Local Fallback] Modo de Calibração Manual Ativo:", err.message);
         
+        setAiProgress(100, "IA Indisponível - Modo Calibração Manual Ativo", true);
+
         if (text) text.innerText = "IA Indisponível (Manual)";
         if (indicator) {
             indicator.style.backgroundColor = "#ff4757";
             indicator.style.boxShadow = "0 0 10px #ff4757";
         }
+
+        // Desvanecer barra de erro após 3 segundos
+        setTimeout(() => {
+            const container = document.getElementById("ai-progress-container");
+            if (container) {
+                container.style.opacity = "0";
+                container.style.height = "0px";
+                container.style.marginBottom = "0px";
+                container.style.border = "none";
+            }
+        }, 3200);
+    }
+}
+
+/**
+ * Atualiza visualmente a barra de progresso do carregamento da IA
+ */
+function setAiProgress(pct, label, isError = false) {
+    const bar = document.getElementById("ai-progress-bar");
+    const text = document.getElementById("ai-progress-text");
+    
+    if (bar) {
+        if (isError) {
+            bar.classList.add("error-bar");
+        } else {
+            bar.classList.remove("error-bar");
+            bar.style.width = `${pct}%`;
+        }
+    }
+    
+    if (text) {
+        text.innerHTML = label;
     }
 }
 

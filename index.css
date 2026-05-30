@@ -638,3 +638,48 @@ header {
     color: var(--accent) !important;
 }
 
+/* 📊 Barra de Progresso de Carregamento da IA */
+.ai-progress-bar-container {
+    width: 100%;
+    height: 18px;
+    background-color: rgba(7, 8, 10, 0.7);
+    border: 1px solid var(--border-color);
+    border-radius: 9px;
+    margin-bottom: 25px;
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    transition: opacity 0.5s ease-out, height 0.5s ease-out, margin 0.5s ease-out, border 0.5s ease-out;
+}
+
+.ai-progress-bar {
+    width: 0%;
+    height: 100%;
+    background: linear-gradient(90deg, var(--burgundy), var(--primary), var(--accent));
+    box-shadow: 0 0 10px var(--accent-glow);
+    border-radius: 9px;
+    transition: width 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+.ai-progress-bar.error-bar {
+    background: linear-gradient(90deg, #800020, #ff4757, #ff6b6b) !important;
+    box-shadow: 0 0 10px rgba(255, 71, 87, 0.4) !important;
+    width: 100% !important;
+}
+
+.ai-progress-text {
+    position: absolute;
+    width: 100%;
+    text-align: center;
+    font-size: 10px;
+    font-family: var(--font-heading);
+    font-weight: 700;
+    color: #ffffff;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    text-shadow: 0 1px 3px rgba(0,0,0,0.85);
+    pointer-events: none;
+}
+
+
