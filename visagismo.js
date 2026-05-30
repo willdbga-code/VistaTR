@@ -10,44 +10,72 @@
 
 class VisagismoEngine {
     /**
-     * Algoritmo Gray World Assumption:
-     * Corrige desvios cromáticos causados por iluminação artificial quente ou fria.
+     * Algoritmo de Balanço de Branco Automático (AWB) Híbrido:
+     * Combina Gray World (60%) com Perfect Reflector / White Patch (40%).
+     * Isso neutraliza com maestria fundos de cores dominantes e mantém a fidelidade da iluminação.
      */
     static applyWhiteBalance(imageData) {
         const data = imageData.data;
         const length = data.length;
         
         let sumR = 0, sumG = 0, sumB = 0;
-        let count = 0;
+        let countGW = 0;
         
-        // Coletar média de R, G, B ignorando pixels saturados ou muito escuros
+        // Parâmetros para White Patch (Perfect Reflector)
+        let maxR = 0, maxG = 0, maxB = 0;
+        
+        // Coletar dados para ambos os métodos em um único loop rápido
         for (let i = 0; i < length; i += 4) {
             const r = data[i];
             const g = data[i+1];
             const b = data[i+2];
             const brightness = (r + g + b) / 3;
+            
+            // Gray World: tons médios saudáveis
             if (brightness > 15 && brightness < 240) {
                 sumR += r;
                 sumG += g;
                 sumB += b;
-                count++;
+                countGW++;
+            }
+            
+            // White Patch: buscar tons brilhantes não saturados
+            if (r < 254 && g < 254 && b < 254 && brightness > 160) {
+                if (r > maxR) maxR = r;
+                if (g > maxG) maxG = g;
+                if (b > maxB) maxB = b;
             }
         }
         
-        if (count === 0) return imageData;
+        // 1. Coeficientes Gray World (GW)
+        let kR_gw = 1, kG_gw = 1, kB_gw = 1;
+        if (countGW > 0) {
+            const avgR = sumR / countGW;
+            const avgG = sumG / countGW;
+            const avgB = sumB / countGW;
+            const grayFactor = (avgR + avgG + avgB) / 3;
+            if (grayFactor > 0) {
+                kR_gw = grayFactor / avgR;
+                kG_gw = grayFactor / avgG;
+                kB_gw = grayFactor / avgB;
+            }
+        }
         
-        const avgR = sumR / count;
-        const avgG = sumG / count;
-        const avgB = sumB / count;
+        // 2. Coeficientes White Patch (WP)
+        let kR_wp = 1, kG_wp = 1, kB_wp = 1;
+        if (maxR > 0 && maxG > 0 && maxB > 0) {
+            const maxVal = (maxR + maxG + maxB) / 3;
+            kR_wp = maxVal / maxR;
+            kG_wp = maxVal / maxG;
+            kB_wp = maxVal / maxB;
+        }
         
-        // Fator de escala cinza ideal
-        const grayFactor = (avgR + avgG + avgB) / 3;
+        // 3. Mesclar Coeficientes (60% Gray World + 40% White Patch)
+        const kR = 0.6 * kR_gw + 0.4 * kR_wp;
+        const kG = 0.6 * kG_gw + 0.4 * kG_wp;
+        const kB = 0.6 * kB_gw + 0.4 * kB_wp;
         
-        if (grayFactor === 0) return imageData;
-        
-        const kR = grayFactor / avgR;
-        const kG = grayFactor / avgG;
-        const kB = grayFactor / avgB;
+        console.log(`[AWB Híbrido] Coeficientes mesclados: kR=${kR.toFixed(2)}, kG=${kG.toFixed(2)}, kB=${kB.toFixed(2)}`);
         
         const correctedData = new Uint8ClampedArray(length);
         for (let i = 0; i < length; i += 4) {
@@ -58,6 +86,45 @@ class VisagismoEngine {
         }
         
         return new ImageData(correctedData, imageData.width, imageData.height);
+    }
+
+    /**
+     * Calcula o Contraste Luminotécnico Pessoal:
+     * Compara a luminância da pele, cabelo e olhos para determinar o contraste.
+     * Retorna a diferença de luminosidade absoluta e a classificação (baixo, médio, alto).
+     */
+    static calculatePersonalContrast(skinRgb, hairRgb, eyeRgb) {
+        // Luminância sRGB (fórmula padrão ITU-R BT.601)
+        const getLuminance = (rgb) => {
+            return 0.299 * rgb.r + 0.587 * rgb.g + 0.114 * rgb.b;
+        };
+
+        const ySkin = getLuminance(skinRgb);
+        const yHair = getLuminance(hairRgb);
+        const yEye = getLuminance(eyeRgb);
+
+        // Diferença máxima de luminosidade
+        const diffHair = Math.abs(ySkin - yHair);
+        const diffEye = Math.abs(ySkin - yEye);
+        const maxDiff = Math.max(diffHair, diffEye);
+
+        // Classificação baseada em escala de 0 a 255 de luminância
+        let label = "Médio";
+        let description = "Médio contraste: Harmonia equilibrada entre pele, olhos e cabelos.";
+        
+        if (maxDiff < 48) {
+            label = "Baixo";
+            description = "Baixo contraste: Tons muito próximos entre pele, cabelos e olhos. Cores suaves e opacas complementam a beleza sutil.";
+        } else if (maxDiff > 96) {
+            label = "Alto";
+            description = "Alto contraste: Grande diferença de luminosidade entre a pele clara e cabelos/olhos escuros (ou vice-versa). Cores puras e saturadas valorizam sua imagem dramática.";
+        }
+
+        return {
+            score: Math.round((maxDiff / 255) * 100),
+            label,
+            description
+        };
     }
 
     /**
@@ -161,25 +228,16 @@ class VisagismoEngine {
         };
     }
 
-    /**
-     * Mapeia cientificamente os atributos de subtons de pele (RGB) nas 12 Estações Cromáticas.
-     * Analisa três dimensões:
-     * 1. TEMPERATURA (Quente vs Frio) -> Medido por b* (amarelo) e a* (vermelho) no CIELAB, e Matiz no HSV.
-     * 2. VALOR/LUMINOSIDADE (Claro vs Profundo) -> L* no CIELAB e V no HSV.
-     * 3. CROMA/SATURAÇÃO (Brilhante vs Suave/Opaco) -> C* = sqrt(a^2 + b^2) e S no HSV.
-     */
-    static analyzeSeasonalColor(r, g, b) {
+    static analyzeSeasonalColor(r, g, b, contrastLabel = "Médio") {
         const lab = this.rgbToLab(r, g, b);
         const hsv = this.rgbToHsv(r, g, b);
-
+ 
         const L = lab.L;
         const a = lab.a;
         const bLab = lab.b;
         const C = Math.sqrt(a * a + bLab * bLab); // Croma/Saturação absoluta
-
+ 
         // 1. Determinar Temperatura
-        // No CIELAB de peles humanas, bLab mede o subtom amarelado/dourado e aLab o avermelhado/rosa.
-        // Peles quentes têm um bLab visivelmente mais alto em relação a aLab.
         const warmthRatio = bLab / (a || 1);
         let temperature = "neutral";
         
@@ -190,9 +248,8 @@ class VisagismoEngine {
         } else {
             temperature = "neutral";
         }
-
-        // Ajuste fino de temperatura pelo Matiz do HSV (tons de pele normais: 15° a 45°)
-        // Tons mais baixos (< 25°) puxam para o rosa/frio, enquanto maiores (> 35°) puxam para o dourado/quente.
+ 
+        // Ajuste fino de temperatura pelo Matiz do HSV
         if (temperature === "neutral") {
             if (hsv.h > 35) {
                 temperature = "warm";
@@ -200,19 +257,16 @@ class VisagismoEngine {
                 temperature = "cool";
             }
         }
-
+ 
         // 2. Determinar Luminosidade (Light vs Deep)
-        // L > 66 é considerada pele clara/luminosa; L < 48 é considerada pele profunda/escura.
         let value = "medium";
         if (L > 65 || hsv.v > 78) {
             value = "light";
         } else if (L < 50 || hsv.v < 55) {
             value = "deep";
         }
-
+ 
         // 3. Determinar Croma (Brilhante vs Suave/Muted)
-        // Croma alto representa peles translúcidas/brilhantes de alto contraste.
-        // Croma baixo representa peles opacas, aveludadas de baixo/médio contraste.
         let chroma = "medium";
         if (C < 19 || hsv.s < 20) {
             chroma = "muted";
@@ -220,9 +274,20 @@ class VisagismoEngine {
             chroma = "bright";
         }
 
+        // 🧠 AJUSTE CIRÚRGICO DE SUB-ESTAÇÃO BASEADO NO CONTRASTE PESSOAL
+        if (contrastLabel === "Alto") {
+            if (chroma === "muted") chroma = "medium";
+            else if (chroma === "medium") chroma = "bright";
+            if (value === "medium") value = "deep";
+        } else if (contrastLabel === "Baixo") {
+            if (chroma === "bright") chroma = "medium";
+            else if (chroma === "medium") chroma = "muted";
+            if (value === "deep") value = "medium";
+        }
+ 
         // Impressão diagnóstica em logs científicos
-        console.log(`[ColorEngine] LAB: L=${L.toFixed(1)}, a=${a.toFixed(1)}, b=${bLab.toFixed(1)} | Croma=${C.toFixed(1)} | HSV: H=${hsv.h}°, S=${hsv.s}%, V=${hsv.v}%`);
-        console.log(`[ColorEngine] Filtros prévios: Temp=${temperature}, Valor=${value}, Croma=${chroma}`);
+        console.log(`[ColorEngine] LAB: L=${L.toFixed(1)}, a=${a.toFixed(1)}, b=${bLab.toFixed(1)} | Croma=${C.toFixed(1)} | HSV: H=${hsv.h}°, S=${hsv.s}%, V=${hsv.v}% | Contraste=${contrastLabel}`);
+        console.log(`[ColorEngine] Filtros finais: Temp=${temperature}, Valor=${value}, Croma=${chroma}`);
 
         let details = {};
 

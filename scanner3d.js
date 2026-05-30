@@ -19,9 +19,11 @@ class Scanner3DEngine {
         this.hitRadius = 15; // pixels de tolerância para clique
         this.isCroppedMode = false; // Ativado se a foto for cortada acima do joelho
 
-        // Coordenadas relativas padrão (0.0 a 1.0) para os 17 nós de calibração
+        // Coordenadas relativas padrão (0.0 a 1.0) para os nós de calibração (incluindo cabelo e olho para contraste)
         this.nodes = {
             face: { x: 0.50, y: 0.17, label: "Rosto (Cor da Pele)", isFace: true, radiusRel: 0.055 },
+            hair: { x: 0.50, y: 0.09, label: "Amostra Cabelo", isContrastSubNode: true },
+            eye: { x: 0.47, y: 0.16, label: "Amostra Olho", isContrastSubNode: true },
             neck: { x: 0.50, y: 0.25, label: "Pescoço" },
             chest: { x: 0.50, y: 0.38, label: "Busto/Peito", isChest: true },
             shoulderL: { x: 0.38, y: 0.34, label: "Ombro Esq" },
@@ -43,6 +45,12 @@ class Scanner3DEngine {
         // Estado do laser de varredura cosmética
         this.scanY = 0;
         this.scanDirection = 1;
+
+        // Estado da Pipeta, Lupa e Drapeamento
+        this.isPipetteModeActive = false;
+        this.cursorX = 0;
+        this.cursorY = 0;
+        this.drapingSeason = null; // 'primavera', 'verao', 'outono', 'inverno' ou null
     }
 
     /**
@@ -287,19 +295,30 @@ class Scanner3DEngine {
         const w = this.canvas.width;
         const h = this.canvas.height;
 
+        // Procurar primeiro os nós menores (não-face) para evitar que o círculo facial gigante intercepte o clique
         for (const [key, node] of Object.entries(this.nodes)) {
-            if (node.hidden) continue; // Ignorar pontos ocultos no modo cropped
+            if (node.hidden || node.isFace) continue;
 
             const nodeX = node.x * w;
             const nodeY = node.y * h;
             const dist = Math.hypot(canvasX - nodeX, canvasY - nodeY);
-            
-            const maxDist = node.isFace ? (node.radiusRel * w) + 12 : this.hitRadius;
-            
-            if (dist <= maxDist) {
+            if (dist <= this.hitRadius) {
                 return key;
             }
         }
+
+        // Se nenhum nó menor foi clicado, checar o rosto
+        const faceNode = this.nodes.face;
+        if (faceNode && !faceNode.hidden) {
+            const faceX = faceNode.x * w;
+            const faceY = faceNode.y * h;
+            const dist = Math.hypot(canvasX - faceX, canvasY - faceY);
+            const maxDist = (faceNode.radiusRel * w) + 12;
+            if (dist <= maxDist) {
+                return "face";
+            }
+        }
+
         return null;
     }
 
@@ -753,7 +772,8 @@ class Scanner3DEngine {
             const isDragging = this.draggedNode === key;
             const isArm = key.includes("elbow") || key.includes("wrist");
             const isBustOrNeck = key === "neck" || key === "chest";
-
+            const isContrast = node.isContrastSubNode;
+ 
             let baseColor = colorBurgundy;
             let diffuseColor = "rgba(217, 4, 41, 0.3)";
             
@@ -763,6 +783,9 @@ class Scanner3DEngine {
             } else if (isBustOrNeck) {
                 baseColor = "#ff9f43";
                 diffuseColor = "rgba(255, 159, 67, 0.3)";
+            } else if (isContrast) {
+                baseColor = key === "hair" ? "#a55eee" : "#70a1ff";
+                diffuseColor = key === "hair" ? "rgba(165, 94, 238, 0.35)" : "rgba(112, 161, 255, 0.35)";
             }
 
             this.ctx.fillStyle = isDragging ? "rgba(0, 245, 212, 0.45)" : diffuseColor;
@@ -807,6 +830,158 @@ class Scanner3DEngine {
             this.ctx.fillStyle = colorIce;
             this.ctx.font = "bold 14px 'Space Grotesk', sans-serif";
             this.ctx.fillText(metrics.bodyType.toUpperCase(), 22, 48);
+        }
+
+        // ==========================================
+        // 8. DRAPEAMENTO DIGITAL INTERATIVO (SE ATIVO)
+        // ==========================================
+        if (this.drapingSeason) {
+            const nNeck = this.nodes.neck;
+            const nSL = this.nodes.shoulderL;
+            const nSR = this.nodes.shoulderR;
+            
+            if (nNeck && nSL && nSR) {
+                const cx = nNeck.x * w;
+                const cy = nNeck.y * h;
+                const sWidth = Math.abs(nSR.x - nSL.x) * w;
+                
+                const drapes = {
+                    primavera: ["#ff007f", "#ff9f43", "#10ac84", "#ffd200"],
+                    verao: ["#70a1ff", "#ff9ff3", "#829399", "#81ecec"],
+                    outono: ["#d35400", "#78281f", "#1a5235", "#7e5109"],
+                    inverno: ["#1b1464", "#833471", "#0652dd", "#ea2027"]
+                };
+                
+                const colors = drapes[this.drapingSeason];
+                if (colors) {
+                    this.ctx.save();
+                    
+                    for (let k = 0; k < 4; k++) {
+                        const radiusX = sWidth * (0.24 + k * 0.08);
+                        const radiusY = sWidth * (0.10 + k * 0.04);
+                        
+                        this.ctx.strokeStyle = colors[k];
+                        this.ctx.lineWidth = sWidth * 0.06;
+                        
+                        this.ctx.beginPath();
+                        this.ctx.ellipse(cx, cy + (k * sWidth * 0.02) + 15, radiusX, radiusY, 0, 0, Math.PI);
+                        this.ctx.stroke();
+                    }
+                    
+                    this.ctx.restore();
+                    
+                    // Desenhar legenda premium
+                    this.ctx.fillStyle = "rgba(7, 8, 10, 0.95)";
+                    this.ctx.fillRect(cx - 50, cy + (sWidth * 0.28) + 10, 100, 16);
+                    this.ctx.strokeStyle = colorTeal;
+                    this.ctx.lineWidth = 1;
+                    this.ctx.strokeRect(cx - 50, cy + (sWidth * 0.28) + 10, 100, 16);
+                    
+                    this.ctx.fillStyle = colorIce;
+                    this.ctx.font = "bold 7px monospace";
+                    const labelText = `DRAPE: ${this.drapingSeason.toUpperCase()}`;
+                    this.ctx.fillText(labelText, cx - 44, cy + (sWidth * 0.28) + 20);
+                }
+            }
+        }
+
+        // ==========================================
+        // 9. LUPA DE ZOOM DA PIPETA (SE ATIVA)
+        // ==========================================
+        if (this.isPipetteModeActive && this.cursorX > 0 && this.cursorY > 0) {
+            const imgCanvas = document.getElementById("image-canvas");
+            if (imgCanvas) {
+                const loupeRadius = 55;
+                const zoomScale = 3;
+                
+                this.ctx.save();
+                
+                this.ctx.beginPath();
+                const loupeX = Math.min(w - loupeRadius - 15, Math.max(loupeRadius + 15, this.cursorX + 60));
+                const loupeY = Math.min(h - loupeRadius - 15, Math.max(loupeRadius + 15, this.cursorY - 60));
+                
+                this.ctx.arc(loupeX, loupeY, loupeRadius, 0, Math.PI * 2);
+                this.ctx.clip();
+                
+                this.ctx.drawImage(
+                    imgCanvas,
+                    this.cursorX - (loupeRadius / zoomScale),
+                    this.cursorY - (loupeRadius / zoomScale),
+                    (loupeRadius * 2) / zoomScale,
+                    (loupeRadius * 2) / zoomScale,
+                    loupeX - loupeRadius,
+                    loupeY - loupeRadius,
+                    loupeRadius * 2,
+                    loupeRadius * 2
+                );
+                
+                this.ctx.restore();
+                
+                this.ctx.strokeStyle = "#ffd166";
+                this.ctx.lineWidth = 3;
+                this.ctx.shadowBlur = 10;
+                this.ctx.shadowColor = "#ffd166";
+                this.ctx.beginPath();
+                this.ctx.arc(loupeX, loupeY, loupeRadius, 0, Math.PI * 2);
+                this.ctx.stroke();
+                this.ctx.shadowBlur = 0;
+                
+                this.ctx.strokeStyle = "rgba(255, 255, 255, 0.6)";
+                this.ctx.lineWidth = 1;
+                this.ctx.beginPath();
+                this.ctx.moveTo(loupeX - 10, loupeY);
+                this.ctx.lineTo(loupeX + 10, loupeY);
+                this.ctx.moveTo(loupeX, loupeY - 10);
+                this.ctx.lineTo(loupeX, loupeY + 10);
+                this.ctx.stroke();
+                
+                this.ctx.beginPath();
+                this.ctx.arc(loupeX, loupeY, 4, 0, Math.PI * 2);
+                this.ctx.stroke();
+                
+                const pixelCtx = imgCanvas.getContext("2d");
+                const pX = Math.min(imgCanvas.width - 1, Math.max(0, Math.floor(this.cursorX)));
+                const pY = Math.min(imgCanvas.height - 1, Math.max(0, Math.floor(this.cursorY)));
+                const pixel = pixelCtx.getImageData(pX, pY, 1, 1).data;
+                const r = pixel[0], g = pixel[1], b = pixel[2];
+                
+                const brightness = (r + g + b) / 3;
+                const diff = Math.max(Math.abs(r-g), Math.abs(g-b), Math.abs(r-b));
+                
+                let qLabel = "EXCELENTE";
+                let qColor = "#00f5d4";
+                
+                if (brightness > 248 || brightness < 20) {
+                    qLabel = "SATURADO / ESCURO";
+                    qColor = "#ff4757";
+                } else if (diff > 25) {
+                    qLabel = "MUITO COLORIDO";
+                    qColor = "#ff9f43";
+                }
+                
+                this.ctx.fillStyle = "rgba(7, 8, 10, 0.9)";
+                this.ctx.fillRect(loupeX - 50, loupeY + loupeRadius - 10, 100, 24);
+                this.ctx.strokeStyle = qColor;
+                this.ctx.lineWidth = 1;
+                this.ctx.strokeRect(loupeX - 50, loupeY + loupeRadius - 10, 100, 24);
+                
+                this.ctx.fillStyle = "#f2f4f7";
+                this.ctx.font = "bold 7px monospace";
+                this.ctx.fillText(`RGB(${r},${g},${b})`, loupeX - 44, loupeY + loupeRadius - 1);
+                
+                this.ctx.fillStyle = qColor;
+                this.ctx.font = "bold 6px monospace";
+                this.ctx.fillText(qLabel, loupeX - 44, loupeY + loupeRadius + 9);
+                
+                this.ctx.strokeStyle = "rgba(255, 209, 102, 0.4)";
+                this.ctx.lineWidth = 1;
+                this.ctx.setLineDash([3, 3]);
+                this.ctx.beginPath();
+                this.ctx.moveTo(this.cursorX, this.cursorY);
+                this.ctx.lineTo(loupeX, loupeY);
+                this.ctx.stroke();
+                this.ctx.setLineDash([]);
+            }
         }
     }
 

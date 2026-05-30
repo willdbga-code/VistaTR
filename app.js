@@ -37,6 +37,25 @@ window.addEventListener("DOMContentLoaded", () => {
 
             // Registrar ouvinte de clique no canvas para o modo Pipeta Conta-Gotas
             meshCanvas.addEventListener("click", handleCanvasPipetteClick);
+
+            // Ouvinte de movimento para rastrear a lupa de zoom no modo pipeta
+            meshCanvas.addEventListener("mousemove", (e) => {
+                if (isPipetteMode && scannerEngine) {
+                    const coords = scannerEngine.getCanvasCoords(e);
+                    scannerEngine.cursorX = coords.x;
+                    scannerEngine.cursorY = coords.y;
+                    scannerEngine.redraw();
+                }
+            });
+
+            meshCanvas.addEventListener("touchmove", (e) => {
+                if (isPipetteMode && scannerEngine && e.touches.length > 0) {
+                    const coords = scannerEngine.getCanvasCoords(e);
+                    scannerEngine.cursorX = coords.x;
+                    scannerEngine.cursorY = coords.y;
+                    scannerEngine.redraw();
+                }
+            }, { passive: true });
         }
 
         // Configurar a zona de drag and drop de arquivos de imagem no painel do scanner
@@ -236,6 +255,10 @@ function togglePipetteMode() {
         if (tipText) {
             tipText.innerHTML = "🧪 <strong>Modo Pipeta Ativo:</strong> Clique em qualquer pixel da foto que deveria ser neutro (branco ou cinza claro, como uma parede ou folha) para calibrar a iluminação a 100% de acerto!";
         }
+        if (scannerEngine) {
+            scannerEngine.isPipetteModeActive = true;
+            scannerEngine.redraw();
+        }
         console.log("[Pipette] Modo de calibração manual por pixel ativado.");
     } else {
         restoreDefaultInteractionTip();
@@ -247,6 +270,12 @@ function togglePipetteMode() {
  */
 function restoreDefaultInteractionTip() {
     isPipetteMode = false;
+    if (scannerEngine) {
+        scannerEngine.isPipetteModeActive = false;
+        scannerEngine.cursorX = 0;
+        scannerEngine.cursorY = 0;
+        scannerEngine.redraw();
+    }
     
     const btn = document.getElementById("btn-pipette");
     const tip = document.getElementById("interaction-tip");
@@ -399,6 +428,8 @@ function setupCanvases(img) {
     container.style.display = "flex";
     actionsBar.style.display = "flex";
     manualPanel.style.display = "block";
+    const drapingPanel = document.getElementById("draping-control-panel");
+    if (drapingPanel) drapingPanel.style.display = "block";
     if (tipPanel) tipPanel.style.display = "flex";
 
     // 1. AWB NATIVO E AUTOMÁTICO (Ininterrupto, como pedido pelo usuário!)
@@ -439,15 +470,23 @@ function onManualTune() {
 function handleInteractionUpdate(metrics, nodes) {
     if (!uploadedImage) return;
 
-    // 1. Amostragem inteligente da cor da pele na região do Face Ring
+    // 1. Amostragem multizona inteligente da cor da pele na região do Face Ring
     const faceNode = nodes.face;
     const skinRgb = sampleSkinColor(faceNode);
 
-    // 2. Calcular a classificação das 12 estações cromáticas
-    activeColorAnalysis = VisagismoEngine.analyzeSeasonalColor(skinRgb.r, skinRgb.g, skinRgb.b);
+    // 2. Amostragem dos sub-nós de cabelo e olhos para contraste
+    const hairRgb = sampleNodeColor(nodes.hair, 6);
+    const eyeRgb = sampleNodeColor(nodes.eye, 4);
+
+    // 3. Calcular Contraste Pessoal
+    const personalContrast = VisagismoEngine.calculatePersonalContrast(skinRgb, hairRgb, eyeRgb);
+    updateContrastUI(personalContrast);
+
+    // 4. Calcular a classificação das 12 estações cromáticas usando o contraste calculado
+    activeColorAnalysis = VisagismoEngine.analyzeSeasonalColor(skinRgb.r, skinRgb.g, skinRgb.b, personalContrast.label);
     currentBodyMetrics = metrics;
 
-    // 3. Atualizar a UI com todos os dados calculados
+    // 5. Atualizar a UI com todos os dados calculados
     updateResultsUI();
 }
 
@@ -458,49 +497,150 @@ function sampleSkinColor(faceNode) {
     const imgCanvas = document.getElementById("image-canvas");
     const ctx = imgCanvas.getContext("2d");
 
-    const sampleX = Math.floor(faceNode.x * imgCanvas.width);
-    const sampleY = Math.floor(faceNode.y * imgCanvas.height);
+    const faceX = Math.floor(faceNode.x * imgCanvas.width);
+    const faceY = Math.floor(faceNode.y * imgCanvas.height);
     const radius = Math.floor(faceNode.radiusRel * imgCanvas.width);
 
-    const startX = Math.max(0, sampleX - radius);
-    const startY = Math.max(0, sampleY - radius);
-    const side = radius * 2;
-    const sizeX = Math.min(imgCanvas.width - startX, side);
-    const sizeY = Math.min(imgCanvas.height - startY, side);
+    // 3 sub-regiões de amostragem relativas ao centro e raio do rosto:
+    // 1. Testa: ligeiramente acima do centro (y - radius * 0.45)
+    // 2. Bochecha Direita: lateral direita (x + radius * 0.4, y + radius * 0.1)
+    // 3. Queixo: inferior central (x, y + radius * 0.55)
+    const zones = [
+        { x: faceX, y: faceY - Math.floor(radius * 0.45), label: "Testa" },
+        { x: faceX + Math.floor(radius * 0.4), y: faceY + Math.floor(radius * 0.1), label: "Bochecha" },
+        { x: faceX, y: faceY + Math.floor(radius * 0.55), label: "Queixo" }
+    ];
 
-    if (sizeX <= 0 || sizeY <= 0) {
-        return { r: 210, g: 175, b: 155 };
-    }
+    let totalR = 0, totalG = 0, totalB = 0, totalCount = 0;
+    const zoneColors = [];
 
-    const pixelData = ctx.getImageData(startX, startY, sizeX, sizeY).data;
-    let sumR = 0, sumG = 0, sumB = 0, count = 0;
+    zones.forEach(zone => {
+        const side = 6;
+        const startX = Math.max(0, zone.x - 3);
+        const startY = Math.max(0, zone.y - 3);
+        const sizeX = Math.min(imgCanvas.width - startX, side);
+        const sizeY = Math.min(imgCanvas.height - startY, side);
 
-    for (let i = 0; i < pixelData.length; i += 4) {
-        const r = pixelData[i];
-        const g = pixelData[i+1];
-        const b = pixelData[i+2];
-        const a = pixelData[i+3];
+        if (sizeX <= 0 || sizeY <= 0) {
+            zoneColors.push({ r: 210, g: 175, b: 155 });
+            return;
+        }
 
-        if (a > 200) {
-            const brightness = (r + g + b) / 3;
-            if (brightness > 28 && brightness < 245) {
-                sumR += r;
-                sumG += g;
-                sumB += b;
-                count++;
+        const pixelData = ctx.getImageData(startX, startY, sizeX, sizeY).data;
+        let sumR = 0, sumG = 0, sumB = 0, count = 0;
+
+        for (let i = 0; i < pixelData.length; i += 4) {
+            const r = pixelData[i];
+            const g = pixelData[i+1];
+            const b = pixelData[i+2];
+            const a = pixelData[i+3];
+
+            if (a > 200) {
+                // Filtragem de cabelos/sombras e destaques saturados (Skin Tone Masking)
+                const brightness = (r + g + b) / 3;
+                const isNotShadowOrHair = brightness > 35 && brightness < 242;
+                const isSkinRelation = r > g && g >= b - 10;
+
+                if (isNotShadowOrHair && isSkinRelation) {
+                    sumR += r;
+                    sumG += g;
+                    sumB += b;
+                    count++;
+                }
             }
         }
-    }
 
+        if (count > 0) {
+            const avgR = Math.round(sumR / count);
+            const avgG = Math.round(sumG / count);
+            const avgB = Math.round(sumB / count);
+            zoneColors.push({ r: avgR, g: avgG, b: avgB });
+
+            totalR += sumR;
+            totalG += sumG;
+            totalB += sumB;
+            totalCount += count;
+        } else {
+            const center = ctx.getImageData(zone.x, zone.y, 1, 1).data;
+            zoneColors.push({ r: center[0], g: center[1], b: center[2] });
+            totalR += center[0];
+            totalG += center[1];
+            totalB += center[2];
+            totalCount += 1;
+        }
+    });
+
+    updateSkinZonesUI(zoneColors);
+
+    return {
+        r: Math.round(totalR / totalCount),
+        g: Math.round(totalG / totalCount),
+        b: Math.round(totalB / totalCount)
+    };
+}
+
+/**
+ * Coleta a cor de um nó/ponto no canvas
+ */
+function sampleNodeColor(node, sampleSize = 4) {
+    const imgCanvas = document.getElementById("image-canvas");
+    if (!imgCanvas) return { r: 0, g: 0, b: 0 };
+    
+    const ctx = imgCanvas.getContext("2d");
+    
+    const px = Math.floor(node.x * imgCanvas.width);
+    const py = Math.floor(node.y * imgCanvas.height);
+    
+    const startX = Math.max(0, px - Math.floor(sampleSize / 2));
+    const startY = Math.max(0, py - Math.floor(sampleSize / 2));
+    
+    const pixelData = ctx.getImageData(startX, startY, sampleSize, sampleSize).data;
+    let sumR = 0, sumG = 0, sumB = 0, count = 0;
+    
+    for (let i = 0; i < pixelData.length; i += 4) {
+        sumR += pixelData[i];
+        sumG += pixelData[i+1];
+        sumB += pixelData[i+2];
+        count++;
+    }
+    
     if (count > 0) {
-        return {
-            r: Math.round(sumR / count),
-            g: Math.round(sumG / count),
-            b: Math.round(sumB / count)
-        };
-    } else {
-        const center = ctx.getImageData(sampleX, sampleY, 1, 1).data;
-        return { r: center[0], g: center[1], b: center[2] };
+        return { r: Math.round(sumR / count), g: Math.round(sumG / count), b: Math.round(sumB / count) };
+    }
+    return { r: 0, g: 0, b: 0 };
+}
+
+/**
+ * Atualiza os círculos científicos de visualização das sub-regiões faciais na UI
+ */
+function updateSkinZonesUI(colors) {
+    const ids = ["zone-forehead", "zone-cheek", "zone-chin"];
+    colors.forEach((color, idx) => {
+        const el = document.getElementById(ids[idx]);
+        if (el) {
+            const hex = "#" + ((1 << 24) + (color.r << 16) + (color.g << 8) + color.b).toString(16).slice(1);
+            el.style.backgroundColor = hex;
+            el.title = `${el.dataset.label}: RGB(${color.r}, ${color.g}, ${color.b})`;
+            
+            const label = document.getElementById(`${ids[idx]}-val`);
+            if (label) label.innerText = hex.toUpperCase();
+        }
+    });
+}
+
+/**
+ * Atualiza o indicador visual de contraste na UI
+ */
+function updateContrastUI(contrast) {
+    const valEl = document.getElementById("val-contrast");
+    const descEl = document.getElementById("desc-contrast");
+    
+    if (valEl) {
+        valEl.innerText = `${contrast.label} (${contrast.score}%)`;
+        valEl.className = `contrast-badge ${contrast.label.toLowerCase()}`;
+    }
+    if (descEl) {
+        descEl.innerText = contrast.description;
     }
 }
 
@@ -581,6 +721,9 @@ function resetScanner() {
     document.getElementById("canvas-container").style.display = "none";
     document.getElementById("scanner-actions-bar").style.display = "none";
     document.getElementById("manual-tuning-panel").style.display = "none";
+    const drapingPanel = document.getElementById("draping-control-panel");
+    if (drapingPanel) drapingPanel.style.display = "none";
+    setDigitalDrape(null);
     document.getElementById("upload-hud").style.display = "flex";
     
     const tip = document.getElementById("interaction-tip");
@@ -672,4 +815,23 @@ function captureWebcamPhoto() {
         stopWebcamCapture(); // Desativar camera para economizar recursos
     };
     uploadedImage.src = tempCanvas.toDataURL("image/jpeg");
+}
+
+/**
+ * Altera a estação ativa do drapeamento digital interativo
+ */
+function setDigitalDrape(season) {
+    if (!uploadedImage || !scannerEngine) return;
+    
+    // Desmarcar botões ativos
+    const buttons = document.querySelectorAll(".draping-btn");
+    buttons.forEach(btn => btn.classList.remove("active"));
+    
+    if (season) {
+        const activeBtn = document.querySelector(`.draping-btn.${season}`);
+        if (activeBtn) activeBtn.classList.add("active");
+    }
+    
+    scannerEngine.drapingSeason = season;
+    scannerEngine.redraw();
 }

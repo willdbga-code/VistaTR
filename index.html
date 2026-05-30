@@ -118,6 +118,19 @@
                             <input type="range" class="slider-input" id="slider-hip" min="20" max="100" value="46" oninput="onManualTune()">
                         </div>
                     </div>
+
+                    <!-- Controle de Drapeamento Digital -->
+                    <div class="manual-control-card" style="display: none;" id="draping-control-panel">
+                        <h3>Drapeamento Digital Interativo</h3>
+                        <p class="card-subtitle">Aplique faixas de tecidos cromáticos virtuais sob o pescoço para testar harmonias sazonais.</p>
+                        <div class="draping-buttons-row">
+                            <button class="draping-btn primavera" onclick="setDigitalDrape('primavera')">Primavera</button>
+                            <button class="draping-btn verao" onclick="setDigitalDrape('verao')">Verão</button>
+                            <button class="draping-btn outono" onclick="setDigitalDrape('outono')">Outono</button>
+                            <button class="draping-btn inverno" onclick="setDigitalDrape('inverno')">Inverno</button>
+                            <button class="draping-btn clear" onclick="setDigitalDrape(null)">❌ Limpar</button>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- COLUNA DIREITA: Resultados Analíticos -->
@@ -142,6 +155,30 @@
                                     <!-- Injetado via JS -->
                                 </div>
                             </div>
+
+                            <div class="skin-zones-container" style="margin-top: 15px; display: flex; gap: 15px; align-items: center; background: rgba(255,255,255,0.02); padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.05);">
+                                <span class="palette-title" style="margin: 0; font-size: 10px;">Amostragem Multizona:</span>
+                                <div style="display: flex; gap: 10px;">
+                                    <div style="display: flex; flex-direction: column; align-items: center; gap: 3px;">
+                                        <div class="zone-circle" id="zone-forehead" data-label="Testa" style="width: 14px; height: 14px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.3); background-color: #ccc;"></div>
+                                        <span style="font-size: 8px; color: var(--text-muted);" id="zone-forehead-val">#---</span>
+                                    </div>
+                                    <div style="display: flex; flex-direction: column; align-items: center; gap: 3px;">
+                                        <div class="zone-circle" id="zone-cheek" data-label="Bochecha" style="width: 14px; height: 14px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.3); background-color: #ccc;"></div>
+                                        <span style="font-size: 8px; color: var(--text-muted);" id="zone-cheek-val">#---</span>
+                                    </div>
+                                    <div style="display: flex; flex-direction: column; align-items: center; gap: 3px;">
+                                        <div class="zone-circle" id="zone-chin" data-label="Queixo" style="width: 14px; height: 14px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.3); background-color: #ccc;"></div>
+                                        <span style="font-size: 8px; color: var(--text-muted);" id="zone-chin-val">#---</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="result-card">
+                            <div class="result-badge">⚖️ Contraste Luminotécnico Pessoal</div>
+                            <div class="result-value" id="val-contrast" style="font-size: 20px; font-weight: 700; color: var(--accent); margin: 5px 0;">-</div>
+                            <div class="result-description" id="desc-contrast" style="font-size: 11px; line-height: 1.4; color: var(--text-muted);">-</div>
                         </div>
 
                         <div class="result-card">

@@ -682,4 +682,104 @@ header {
     pointer-events: none;
 }
 
+/* ==========================================================================
+   🎨 ESTILOS PREMIUM PARA DRAPEAMENTO, CONTRASTE E SUB-AMOSTRAS
+   ========================================================================== */
+
+.draping-buttons-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    margin-top: 15px;
+}
+
+.draping-btn {
+    background-color: var(--bg-dark);
+    color: var(--text-muted);
+    border: 1px solid var(--border-color);
+    padding: 10px 8px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    transition: var(--transition-smooth);
+    text-align: center;
+}
+
+.draping-btn:hover {
+    color: var(--text-main);
+    border-color: var(--border-hover);
+    transform: translateY(-1px);
+}
+
+.draping-btn.active {
+    color: #ffffff !important;
+    font-weight: 800;
+    box-shadow: 0 0 12px var(--btn-glow) !important;
+    border-color: var(--btn-color) !important;
+    background-color: var(--btn-bg) !important;
+}
+
+/* Variáveis para botões de drapeamento ativos */
+.draping-btn.primavera { --btn-color: #ff007f; --btn-glow: rgba(255, 0, 127, 0.4); --btn-bg: rgba(255, 0, 127, 0.1); }
+.draping-btn.verao { --btn-color: #70a1ff; --btn-glow: rgba(112, 161, 255, 0.4); --btn-bg: rgba(112, 161, 255, 0.1); }
+.draping-btn.outono { --btn-color: #d35400; --btn-glow: rgba(211, 84, 0, 0.4); --btn-bg: rgba(211, 84, 0, 0.1); }
+.draping-btn.inverno { --btn-color: #0652dd; --btn-glow: rgba(6, 82, 221, 0.4); --btn-bg: rgba(6, 82, 221, 0.1); }
+
+.draping-btn.clear {
+    grid-column: span 4;
+    background-color: rgba(217, 4, 41, 0.05);
+    color: var(--primary-hover);
+    border-color: rgba(217, 4, 41, 0.15);
+    margin-top: 4px;
+}
+
+.draping-btn.clear:hover {
+    background-color: rgba(217, 4, 41, 0.1);
+    border-color: var(--primary);
+}
+
+/* Badges de Contraste Luminotécnico */
+.contrast-badge {
+    font-family: var(--font-heading);
+    font-size: 20px;
+    font-weight: 800;
+    display: inline-block;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+}
+
+.contrast-badge.baixo {
+    background: linear-gradient(135deg, #a8e6cf, #55efc4);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.contrast-badge.médio, .contrast-badge.medio {
+    background: linear-gradient(135deg, #ffeaa7, #ffd200);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.contrast-badge.alto {
+    background: linear-gradient(135deg, #ff7675, #ff4757);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+/* Amostragem de Zonas Faciais */
+.zone-circle {
+    box-shadow: 0 0 5px rgba(0,0,0,0.5);
+    transition: transform 0.2s ease;
+    cursor: help;
+}
+
+.zone-circle:hover {
+    transform: scale(1.3);
+    z-index: 5;
+    border-color: #ffffff !important;
+}
+
 
