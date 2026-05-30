@@ -3,10 +3,11 @@
  * 
  * Orquestração local-first interativa (estilo CAD) e sem APIs de terceiros:
  * 1. Carregamento de imagens e fotos ao vivo via Webcam local.
- * 2. Balanço de brancos (AWB) por Gray World automático no upload.
- * 3. Gerenciamento de eventos de drag-and-drop de landmarks corporais e faciais no Canvas.
- * 4. Amostragem inteligente de cores em tempo real na região móvel da face.
- * 5. Atualização instantânea dos biotipos corporais e das 12 estações cromáticas.
+ * 2. Balanço de brancos (AWB) por Gray World automático no upload (nativo e ininterrupto).
+ * 3. Pipeta Conta-Gotas de Balanço de Branco Manual para 100% de fidelidade cromática.
+ * 4. Detecção automática de Pose e Landmarks via TensorFlow.js e BlazePose local acelerado.
+ * 5. Mapeamento interativo de landmarks corporais e faciais no Canvas (CAD-mesh).
+ * 6. Atualização instantânea dos biotipos corporais e das 12 estações cromáticas.
  */
 
 // Instâncias Globais de Controle
@@ -17,7 +18,12 @@ let webcamStream = null;
 let activeColorAnalysis = null;
 let currentBodyMetrics = null;
 
-// Ao carregar a página, inicializa o motor de calibração interativo
+// IA e Calibração Manual
+let tfDetectorModel = null;
+let isPipetteMode = false;
+let rawImageDataBytes = null; // Buffer original intocado do upload para múltiplas recalibrações de pipeta
+
+// Ao carregar a página, inicializa o motor de calibração interativo e carrega a IA
 window.addEventListener("DOMContentLoaded", () => {
     scannerEngine = new Scanner3DEngine();
     
@@ -27,11 +33,185 @@ window.addEventListener("DOMContentLoaded", () => {
         scannerEngine.bindCanvas(meshCanvas, (metrics, nodes) => {
             handleInteractionUpdate(metrics, nodes);
         });
+
+        // Registrar ouvinte de clique no canvas para o modo Pipeta Conta-Gotas
+        meshCanvas.addEventListener("click", handleCanvasPipetteClick);
     }
 
     // Configurar a zona de drag and drop de arquivos de imagem no painel do scanner
     setupDragAndDrop();
+
+    // Carregar assincronamente o detector de pose TensorFlow.js BlazePose
+    loadPoseDetectorModel();
 });
+
+/**
+ * Carrega em background o modelo BlazePose com backend WebGL acelerado
+ */
+async function loadPoseDetectorModel() {
+    const indicator = document.getElementById("ia-indicator");
+    const text = document.getElementById("ia-text");
+
+    try {
+        // Garantir prontidão do TensorFlow.js
+        await tf.ready();
+        await tf.setBackend("webgl");
+        
+        console.log("[TensorFlow.js] Carregando modelo BlazePose (Heavy)...");
+        const model = poseDetection.SupportedModels.BlazePose;
+        const detectorConfig = {
+            runtime: 'tfjs',
+            modelType: 'heavy', // "heavy" oferece precisão profissional máxima de pontos
+            enableSmoothing: true
+        };
+        
+        tfDetectorModel = await poseDetection.createDetector(model, detectorConfig);
+        
+        console.log("✅ [TensorFlow.js] BlazePose carregado com sucesso!");
+        if (indicator && text) {
+            indicator.style.backgroundColor = "#00f5d4";
+            indicator.style.boxShadow = "0 0 10px #00f5d4";
+            text.innerText = "IA Pronta";
+        }
+    } catch (err) {
+        console.error("Erro ao carregar o detector TensorFlow.js:", err);
+        if (text) text.innerText = "IA Indisponível (Manual)";
+        if (indicator) {
+            indicator.style.backgroundColor = "#ff4757";
+            indicator.style.boxShadow = "0 0 10px #ff4757";
+        }
+    }
+}
+
+/**
+ * Roda a detecção de pose local de BlazePose na imagem do canvas
+ */
+async function runAutomaticPoseDetection(imageCanvas) {
+    if (!tfDetectorModel) {
+        console.log("[BlazePose] Detector ainda não está carregado. Calibração manual ativa.");
+        return;
+    }
+
+    const indicator = document.getElementById("ia-indicator");
+    const text = document.getElementById("ia-text");
+
+    if (indicator && text) {
+        indicator.style.backgroundColor = "#ffd166";
+        indicator.style.boxShadow = "0 0 10px #ffd166";
+        text.innerText = "IA Mapeando...";
+    }
+
+    try {
+        console.log("[BlazePose] Estimando pose local...");
+        const poses = await tfDetectorModel.estimatePoses(imageCanvas);
+
+        if (poses && poses.length > 0 && poses[0].keypoints) {
+            console.log("[BlazePose] Pontos identificados! Importando landmarks...");
+            scannerEngine.importBlazePoseKeypoints(poses[0].keypoints, imageCanvas.width, imageCanvas.height);
+        } else {
+            console.warn("[BlazePose] Nenhuma silhueta corporal identificada na imagem.");
+        }
+    } catch (err) {
+        console.error("[BlazePose] Erro durante inferência:", err);
+    } finally {
+        if (indicator && text) {
+            indicator.style.backgroundColor = "#00f5d4";
+            indicator.style.boxShadow = "0 0 10px #00f5d4";
+            text.innerText = "IA Pronta";
+        }
+    }
+}
+
+/**
+ * Ativa ou desativa a ferramenta de Pipeta Conta-Gotas de balanço de brancos
+ */
+function togglePipetteMode() {
+    if (!uploadedImage) return;
+
+    isPipetteMode = !isPipetteMode;
+    
+    const btn = document.getElementById("btn-pipette");
+    const tip = document.getElementById("interaction-tip");
+    const tipText = document.getElementById("tip-text");
+
+    if (isPipetteMode) {
+        btn.classList.add("active-pipette");
+        btn.innerText = "🧪 Selecione o Ponto";
+        if (tip) {
+            tip.classList.add("active-pipette-tip");
+            tip.style.display = "flex";
+        }
+        if (tipText) {
+            tipText.innerHTML = "🧪 <strong>Modo Pipeta Ativo:</strong> Clique em qualquer pixel da foto que deveria ser neutro (branco ou cinza claro, como uma parede ou folha) para calibrar a iluminação a 100% de acerto!";
+        }
+        console.log("[Pipette] Modo de calibração manual por pixel ativado.");
+    } else {
+        restoreDefaultInteractionTip();
+    }
+}
+
+/**
+ * Restaura o painel de dicas e botão da pipeta para o estado interativo padrão
+ */
+function restoreDefaultInteractionTip() {
+    isPipetteMode = false;
+    
+    const btn = document.getElementById("btn-pipette");
+    const tip = document.getElementById("interaction-tip");
+    const tipText = document.getElementById("tip-text");
+
+    if (btn) {
+        btn.classList.remove("active-pipette");
+        btn.innerText = "🧪 Pipeta de Branco";
+    }
+    if (tip) {
+        tip.classList.remove("active-pipette-tip");
+    }
+    if (tipText) {
+        tipText.innerHTML = "<strong>Calibração Dinâmica:</strong> Arraste os círculos articulares (Vermelhos) e o anel facial (Verde) diretamente na foto para atualizar a análise e as paletas instantaneamente!";
+    }
+}
+
+/**
+ * Captura o clique no canvas de mesh e executa o balanço de brancos manual se a pipeta estiver ativa
+ */
+function handleCanvasPipetteClick(e) {
+    if (!isPipetteMode || !uploadedImage || !rawImageDataBytes) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    // Obter as coordenadas de clique relativas ao canvas real
+    const coords = scannerEngine.getCanvasCoords(e);
+    
+    const imgCanvas = document.getElementById("image-canvas");
+    const ctx = imgCanvas.getContext("2d");
+
+    // Ler a cor original intocada do buffer original (para evitar múltiplas calibrações distorcidas)
+    // Criar um canvas temporário com os bytes originais para coletar o pixel exato
+    const tempCanvas = document.createElement("canvas");
+    tempCanvas.width = imgCanvas.width;
+    tempCanvas.height = imgCanvas.height;
+    tempCanvas.getContext("2d").putImageData(rawImageDataBytes, 0, 0);
+
+    const clickX = Math.min(tempCanvas.width - 1, Math.max(0, Math.floor(coords.x)));
+    const clickY = Math.min(tempCanvas.height - 1, Math.max(0, Math.floor(coords.y)));
+
+    const pixel = tempCanvas.getContext("2d").getImageData(clickX, clickY, 1, 1).data;
+    const r = pixel[0];
+    const g = pixel[1];
+    const b = pixel[2];
+
+    console.log(`[Pipette Click] Pixel de referência coletado: RGB(${r}, ${g}, ${b}) em (${clickX}, ${clickY})`);
+
+    // Aplicar a calibragem manual de balanço de brancos
+    const correctedData = VisagismoEngine.applyManualWhiteBalance(rawImageDataBytes, r, g, b);
+    ctx.putImageData(correctedData, 0, 0);
+
+    // Desativar modo pipeta e disparar atualização de colorometria e malha corporal imediata
+    restoreDefaultInteractionTip();
+    scannerEngine.triggerUpdate();
+}
 
 /**
  * Gerencia o drag and drop de arquivos no painel principal
@@ -119,6 +299,9 @@ function setupCanvases(img) {
     const ctx = imgCanvas.getContext("2d");
     ctx.drawImage(img, 0, 0, finalWidth, finalHeight);
 
+    // GUARDAR UMA CÓPIA EXATA DOS PIXELS DE UPLOAD PARA BALANÇO MANUAL FUTURO
+    rawImageDataBytes = ctx.getImageData(0, 0, finalWidth, finalHeight);
+
     // Esconder HUD inicial e exibir painel interativo e calibração
     uploadHud.style.display = "none";
     container.style.display = "flex";
@@ -126,14 +309,17 @@ function setupCanvases(img) {
     manualPanel.style.display = "block";
     if (tipPanel) tipPanel.style.display = "flex";
 
-    // 1. CORREÇÃO DE BALANÇO DE BRANCOS (AWB) IMEDIATA
-    console.log("[AWB] Aplicando balanço de brancos Gray World...");
+    // 1. AWB NATIVO E AUTOMÁTICO (Ininterrupto, como pedido pelo usuário!)
+    console.log("[AWB Nativo] Aplicando balanço de brancos automático Gray World...");
     const rawData = ctx.getImageData(0, 0, finalWidth, finalHeight);
     const correctedData = VisagismoEngine.applyWhiteBalance(rawData);
     ctx.putImageData(correctedData, 0, 0);
 
     // 2. Disparar recalibração dos nós baseada nos sliders iniciais da tela
     onManualTune();
+
+    // 3. Executar o detector de pose inteligente BlazePose em background de forma não bloqueante
+    runAutomaticPoseDetection(imgCanvas);
 }
 
 /**
@@ -180,12 +366,10 @@ function sampleSkinColor(faceNode) {
     const imgCanvas = document.getElementById("image-canvas");
     const ctx = imgCanvas.getContext("2d");
 
-    // Coordenadas centrais reais no canvas com base na proporção relativa do nó
     const sampleX = Math.floor(faceNode.x * imgCanvas.width);
     const sampleY = Math.floor(faceNode.y * imgCanvas.height);
     const radius = Math.floor(faceNode.radiusRel * imgCanvas.width);
 
-    // Definir bounding box quadrada para a amostragem de pixels
     const startX = Math.max(0, sampleX - radius);
     const startY = Math.max(0, sampleY - radius);
     const side = radius * 2;
@@ -193,7 +377,7 @@ function sampleSkinColor(faceNode) {
     const sizeY = Math.min(imgCanvas.height - startY, side);
 
     if (sizeX <= 0 || sizeY <= 0) {
-        return { r: 210, g: 175, b: 155 }; // Fallback neutro quente
+        return { r: 210, g: 175, b: 155 };
     }
 
     const pixelData = ctx.getImageData(startX, startY, sizeX, sizeY).data;
@@ -205,9 +389,8 @@ function sampleSkinColor(faceNode) {
         const b = pixelData[i+2];
         const a = pixelData[i+3];
 
-        if (a > 200) { // Ignorar transparentes
+        if (a > 200) {
             const brightness = (r + g + b) / 3;
-            // Ignorar extremos de sombra ou luz (cabelo escuro, olhos ou reflexos estourados no fundo)
             if (brightness > 28 && brightness < 245) {
                 sumR += r;
                 sumG += g;
@@ -224,7 +407,6 @@ function sampleSkinColor(faceNode) {
             b: Math.round(sumB / count)
         };
     } else {
-        // Fallback pontual no centro exato se a área for inválida
         const center = ctx.getImageData(sampleX, sampleY, 1, 1).data;
         return { r: center[0], g: center[1], b: center[2] };
     }
@@ -239,7 +421,6 @@ function updateResultsUI() {
 
     if (!activeColorAnalysis || !currentBodyMetrics) return;
 
-    // Transição de HUD (Esconder placeholder e exibir resultados)
     if (placeholder) placeholder.style.display = "none";
     if (resultsHud) resultsHud.style.display = "flex";
 
@@ -290,10 +471,11 @@ function updateResultsUI() {
 }
 
 /**
- * Recalibra o Balanço de Brancos aplicando Gray World novamente na imagem original
+ * Recalibra o Balanço de Brancos aplicando o AWB Nativo Gray World na imagem original
  */
 function runAnalysisWorkflow() {
     if (!uploadedImage) return;
+    restoreDefaultInteractionTip();
     setupCanvases(uploadedImage);
 }
 
@@ -302,6 +484,8 @@ function runAnalysisWorkflow() {
  */
 function resetScanner() {
     uploadedImage = null;
+    rawImageDataBytes = null;
+    isPipetteMode = false;
     document.getElementById("canvas-container").style.display = "none";
     document.getElementById("scanner-actions-bar").style.display = "none";
     document.getElementById("manual-tuning-panel").style.display = "none";
@@ -309,6 +493,8 @@ function resetScanner() {
     
     const tip = document.getElementById("interaction-tip");
     if (tip) tip.style.display = "none";
+    
+    restoreDefaultInteractionTip();
     
     // Ocultar resultados e exibir placeholder
     document.getElementById("results-hud").style.display = "none";

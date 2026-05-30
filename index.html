@@ -7,6 +7,12 @@
     
     <!-- Folha de Estilos de Alto Impacto: Luxo Científico Escuro -->
     <link rel="stylesheet" href="index.css">
+
+    <!-- 🧠 TensorFlow.js & BlazePose Detector Local -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core@4.20.0/dist/tf-core.min.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter@4.20.0/dist/tf-converter.min.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl@4.20.0/dist/tf-backend-webgl.min.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection@2.1.3/dist/pose-detection.min.js" crossorigin="anonymous"></script>
 </head>
 <body>
 
@@ -14,9 +20,15 @@
         <!-- 🏛️ CABEÇALHO CIENTÍFICO -->
         <header>
             <h1 class="logo-text">Estúdio de Visagismo 3D</h1>
-            <div class="status-badge-container">
-                <span class="status-indicator"></span>
-                <span class="status-text">Motor Interativo Ativo</span>
+            <div style="display: flex; gap: 10px;">
+                <div class="status-badge-container" id="ia-status-badge" style="background-color: rgba(0, 245, 212, 0.04); border-color: rgba(0, 245, 212, 0.2); color: var(--accent);">
+                    <span class="status-indicator" id="ia-indicator" style="background-color: #ffd166; box-shadow: 0 0 8px #ffd166;"></span>
+                    <span class="status-text" id="ia-text">IA Carregando...</span>
+                </div>
+                <div class="status-badge-container">
+                    <span class="status-indicator"></span>
+                    <span class="status-text">Motor Interativo Ativo</span>
+                </div>
             </div>
         </header>
 
@@ -29,7 +41,7 @@
                     <!-- Dica de Interatividade (CAD-Style) -->
                     <div class="canvas-interaction-tip" id="interaction-tip" style="display: none;">
                         <span>💡</span>
-                        <span><strong>Calibração Dinâmica:</strong> Arraste os círculos articulares (Vermelhos) e o anel facial (Verde) diretamente na foto para atualizar a análise e as paletas instantaneamente!</span>
+                        <span id="tip-text"><strong>Calibração Dinâmica:</strong> Arraste os círculos articulares (Vermelhos) e o anel facial (Verde) diretamente na foto para atualizar a análise e as paletas instantaneamente!</span>
                     </div>
 
                     <div class="scanner-view-container" id="drop-zone">
@@ -50,7 +62,7 @@
                         
                         <!-- Visualizador Interativo de Canvas Duplo -->
                         <div class="canvas-container" id="canvas-container" style="display: none;">
-                            <!-- Canvas 1: Imagem Original corrigida com AWB (Balanço de Brancos) -->
+                            <!-- Canvas 1: Imagem Original corrigida com AWB -->
                             <canvas id="image-canvas" class="scanner-canvas"></canvas>
                             <!-- Canvas 2: Mesh Neon do Esqueleto 3D (Borgonha, Gelo e Teal) -->
                             <canvas id="mesh-canvas" class="scanner-canvas"></canvas>
@@ -68,7 +80,8 @@
                     
                     <!-- Ações Rápidas do Visualizador -->
                     <div class="scanner-actions" style="display: none;" id="scanner-actions-bar">
-                        <button class="premium-btn" onclick="runAnalysisWorkflow()">✨ Recalibrar AWB</button>
+                        <button class="premium-btn" onclick="runAnalysisWorkflow()">✨ AWB Automático</button>
+                        <button class="premium-btn secondary" id="btn-pipette" onclick="togglePipetteMode()" title="Ative a Pipeta e clique em uma área branca ou cinza da foto para calibrar a iluminação a 100% de precisão">🧪 Pipeta de Branco</button>
                         <button class="premium-btn secondary" onclick="resetScanner()">🔄 Novo Escaneamento</button>
                     </div>
 

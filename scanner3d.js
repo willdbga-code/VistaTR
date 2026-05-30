@@ -592,6 +592,104 @@ class Scanner3DEngine {
     }
 
     /**
+     * Mapeia as coordenadas absolutas de pontos identificados pela IA (BlazePose)
+     * e atualiza os landmarks relativos do nosso motor de física local.
+     */
+    importBlazePoseKeypoints(keypoints, imageWidth, imageHeight) {
+        if (!keypoints || keypoints.length === 0) return;
+
+        const findKp = (nameOrIdx) => {
+            return keypoints.find(kp => kp.name === nameOrIdx || kp.index === nameOrIdx);
+        };
+
+        // Identificar pontos do BlazePose (Topology COCO/MediaPipe)
+        const kpNose = findKp("nose") || findKp(0);
+        const kpLShoulder = findKp("left_shoulder") || findKp(11);
+        const kpRShoulder = findKp("right_shoulder") || findKp(12);
+        const kpLHip = findKp("left_hip") || findKp(23);
+        const kpRHip = findKp("right_hip") || findKp(24);
+        const kpLKnee = findKp("left_knee") || findKp(25);
+        const kpRKnee = findKp("right_knee") || findKp(26);
+        const kpLAnkle = findKp("left_ankle") || findKp(27);
+        const kpRAnkle = findKp("right_ankle") || findKp(28);
+
+        const toRel = (kp) => {
+            if (!kp || (kp.score !== undefined && kp.score < 0.25)) return null;
+            return {
+                x: Math.min(1.0, Math.max(0.0, kp.x / imageWidth)),
+                y: Math.min(1.0, Math.max(0.0, kp.y / imageHeight))
+            };
+        };
+
+        const relNose = toRel(kpNose);
+        const relLSh = toRel(kpLShoulder);
+        const relRSh = toRel(kpRShoulder);
+        const relLHip = toRel(kpLHip);
+        const relRHip = toRel(kpRHip);
+        const relLKnee = toRel(kpLKnee);
+        const relRKnee = toRel(kpRKnee);
+        const relLAnkle = toRel(kpLAnkle);
+        const relRAnkle = toRel(kpRAnkle);
+
+        // Atualizar nós de visualização interativa
+        if (relNose) {
+            this.nodes.face.x = relNose.x;
+            // Posicionar anel ligeiramente acima do nariz (na testa/rosto)
+            this.nodes.face.y = Math.max(0.05, relNose.y - 0.03);
+        }
+        
+        if (relLSh) {
+            this.nodes.shoulderL.x = relLSh.x;
+            this.nodes.shoulderL.y = relLSh.y;
+        }
+        if (relRSh) {
+            this.nodes.shoulderR.x = relRSh.x;
+            this.nodes.shoulderR.y = relRSh.y;
+        }
+
+        if (relLHip) {
+            this.nodes.hipL.x = relLHip.x;
+            this.nodes.hipL.y = relLHip.y;
+        }
+        if (relRHip) {
+            this.nodes.hipR.x = relRHip.x;
+            this.nodes.hipR.y = relRHip.y;
+        }
+
+        // Interpolar Cintura (63% quadril, 37% ombro) para simular biotipo
+        if (relLSh && relLHip) {
+            this.nodes.waistL.x = relLHip.x * 0.63 + relLSh.x * 0.37;
+            this.nodes.waistL.y = relLHip.y * 0.63 + relLSh.y * 0.37;
+        }
+        if (relRSh && relRHip) {
+            this.nodes.waistR.x = relRHip.x * 0.63 + relRSh.x * 0.37;
+            this.nodes.waistR.y = relRHip.y * 0.63 + relRSh.y * 0.37;
+        }
+
+        if (relLKnee) {
+            this.nodes.kneeL.x = relLKnee.x;
+            this.nodes.kneeL.y = relLKnee.y;
+        }
+        if (relRKnee) {
+            this.nodes.kneeR.x = relRKnee.x;
+            this.nodes.kneeR.y = relRKnee.y;
+        }
+        if (relLAnkle) {
+            this.nodes.ankleL.x = relLAnkle.x;
+            this.nodes.ankleL.y = relLAnkle.y;
+        }
+        if (relRAnkle) {
+            this.nodes.ankleR.x = relRAnkle.x;
+            this.nodes.ankleR.y = relRAnkle.y;
+        }
+
+        console.log("[BlazePose Import] Pontos corporais mapeados com sucesso no motor 3D!");
+        this.redraw();
+        this.triggerUpdate();
+        this.syncNodesToSliders();
+    }
+
+    /**
      * Classificação Científica Baseada nos Nós de Calibração Arrastáveis
      */
     analyzeBodyMetrics() {

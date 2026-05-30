@@ -616,3 +616,25 @@ header {
         padding: 20px;
     }
 }
+
+/* 🧪 Estilos do modo Pipeta Conta-Gotas */
+.premium-btn.active-pipette {
+    background: linear-gradient(135deg, var(--accent), #00b4d8) !important;
+    color: #07080a !important;
+    box-shadow: 0 0 18px var(--accent) !important;
+    border-color: var(--accent) !important;
+    animation: pipette-pulse 1.5s infinite;
+}
+
+@keyframes pipette-pulse {
+    0% { box-shadow: 0 0 0 0 rgba(0, 245, 212, 0.7); }
+    70% { box-shadow: 0 0 0 8px rgba(0, 245, 212, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(0, 245, 212, 0); }
+}
+
+.canvas-interaction-tip.active-pipette-tip {
+    background-color: rgba(0, 245, 212, 0.05) !important;
+    border-color: var(--accent) !important;
+    color: var(--accent) !important;
+}
+

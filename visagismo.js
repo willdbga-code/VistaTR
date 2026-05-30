@@ -61,6 +61,36 @@ class VisagismoEngine {
     }
 
     /**
+     * Algoritmo de Balanço de Branco Manual (Pipeta/Conta-Gotas):
+     * Calibra os multiplicadores com base em um pixel de referência neutro selecionado.
+     */
+    static applyManualWhiteBalance(imageData, refR, refG, refB) {
+        const data = imageData.data;
+        const length = data.length;
+        
+        const avg = (refR + refG + refB) / 3;
+        
+        // Evitar divisão por zero ou amostragem em tons pretos/brancos extremos
+        if (avg < 5 || avg > 252) return imageData;
+        
+        const kR = avg / refR;
+        const kG = avg / refG;
+        const kB = avg / refB;
+        
+        console.log(`[Manual AWB] Fatores aplicados: kR=${kR.toFixed(2)}, kG=${kG.toFixed(2)}, kB=${kB.toFixed(2)}`);
+        
+        const correctedData = new Uint8ClampedArray(length);
+        for (let i = 0; i < length; i += 4) {
+            correctedData[i]     = Math.min(255, Math.max(0, data[i] * kR));     // Red
+            correctedData[i + 1] = Math.min(255, Math.max(0, data[i + 1] * kG)); // Green
+            correctedData[i + 2] = Math.min(255, Math.max(0, data[i + 2] * kB)); // Blue
+            correctedData[i + 3] = data[i + 3];                                  // Alpha
+        }
+        
+        return new ImageData(correctedData, imageData.width, imageData.height);
+    }
+
+    /**
      * Converte RGB para CIELAB (L*, a*, b*) sob o iluminante de luz natural D65.
      */
     static rgbToLab(r, g, b) {
