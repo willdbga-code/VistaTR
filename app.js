@@ -52,29 +52,45 @@ async function loadPoseDetectorModel() {
     const indicator = document.getElementById("ia-indicator");
     const text = document.getElementById("ia-text");
 
-    try {
-        // Garantir prontidão do TensorFlow.js
+    // Limite de 4.5 segundos para carregar o modelo antes de acionar o Fallback manual
+    const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error("Timeout limite de rede atingido ao carregar modelo de IA")), 4500);
+    });
+
+    const initPromise = async () => {
+        // Verificar se as dependências do script falharam por CORS local (file://)
+        if (typeof tf === "undefined" || typeof poseDetection === "undefined") {
+            throw new Error("Scripts do TensorFlow.js bloqueados ou falharam ao carregar.");
+        }
+
+        // Inicializar TF.js
         await tf.ready();
         await tf.setBackend("webgl");
         
-        console.log("[TensorFlow.js] Carregando modelo BlazePose (Heavy)...");
+        console.log("[TensorFlow.js] Carregando modelo BlazePose (LITE)...");
         const model = poseDetection.SupportedModels.BlazePose;
         const detectorConfig = {
             runtime: 'tfjs',
-            modelType: 'heavy', // "heavy" oferece precisão profissional máxima de pontos
+            modelType: 'lite', // "lite" é ideal para ambientes locais (4MB) e carrega instantaneamente
             enableSmoothing: true
         };
         
         tfDetectorModel = await poseDetection.createDetector(model, detectorConfig);
-        
-        console.log("✅ [TensorFlow.js] BlazePose carregado com sucesso!");
+        console.log("✅ [TensorFlow.js] BlazePose LITE carregado com sucesso!");
+    };
+
+    try {
+        // Executa carregamento com limite de tempo estrito
+        await Promise.race([initPromise(), timeoutPromise]);
+
         if (indicator && text) {
             indicator.style.backgroundColor = "#00f5d4";
             indicator.style.boxShadow = "0 0 10px #00f5d4";
             text.innerText = "IA Pronta";
         }
     } catch (err) {
-        console.error("Erro ao carregar o detector TensorFlow.js:", err);
+        console.warn("[IA Local Fallback] Modo de Calibração Manual Ativo:", err.message);
+        
         if (text) text.innerText = "IA Indisponível (Manual)";
         if (indicator) {
             indicator.style.backgroundColor = "#ff4757";
