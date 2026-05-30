@@ -1,11 +1,12 @@
 /**
  * 🕺 Scanner Corporal Interativo & Motor Antropométrico (100% Local)
  * 
- * Este arquivo substitui a dependência externa instável do MediaPipe Pose por:
+ * Este arquivo lida com:
  * 1. Um motor de landmarks corporais interativo e arrastável em tempo real (estilo CAD).
  * 2. Um anel de amostragem facial móvel para colorimetria 100% precisa.
  * 3. Classificação visagista de silhuetas calculada matematicamente sob demanda.
  * 4. Renderização cibernética neon Borgonha/Rubi e Verde Neon no canvas.
+ * 5. Nova Renderização de Malha Volumétrica 3D (Grelha Torácica, Membros Cilíndricos e Cúpula Facial Esférica).
  */
 
 class Scanner3DEngine {
@@ -18,7 +19,7 @@ class Scanner3DEngine {
 
         // Coordenadas relativas padrão (0.0 a 1.0) para os nós de calibração
         this.nodes = {
-            face: { x: 0.50, y: 0.20, label: "Rosto (Cor da Pele)", isFace: true, radiusRel: 0.05 },
+            face: { x: 0.50, y: 0.20, label: "Rosto (Cor da Pele)", isFace: true, radiusRel: 0.055 },
             shoulderL: { x: 0.38, y: 0.34, label: "Ombro Esq" },
             shoulderR: { x: 0.62, y: 0.34, label: "Ombro Dir" },
             waistL: { x: 0.42, y: 0.50, label: "Cintura Esq" },
@@ -102,7 +103,6 @@ class Scanner3DEngine {
         const clientX = e.touches ? e.touches[0].clientX : e.clientX;
         const clientY = e.touches ? e.touches[0].clientY : e.clientY;
         
-        // Retorna a posição mapeada proporcionalmente ao canvas real
         return {
             x: ((clientX - rect.left) / rect.width) * this.canvas.width,
             y: ((clientY - rect.top) / rect.height) * this.canvas.height
@@ -118,8 +118,7 @@ class Scanner3DEngine {
             const nodeY = node.y * h;
             const dist = Math.hypot(canvasX - nodeX, canvasY - nodeY);
             
-            // Tolerância maior para o anel facial
-            const maxDist = node.isFace ? (node.radiusRel * w) + 10 : this.hitRadius;
+            const maxDist = node.isFace ? (node.radiusRel * w) + 12 : this.hitRadius;
             
             if (dist <= maxDist) {
                 return key;
@@ -136,7 +135,6 @@ class Scanner3DEngine {
 
     handleMouseMove(e) {
         if (!this.draggedNode) {
-            // Mudar cursor para pointer se estiver em cima de um nó
             const coords = this.getCanvasCoords(e);
             const nearNode = this.findNearNode(coords.x, coords.y);
             this.canvas.style.cursor = nearNode ? "pointer" : "default";
@@ -146,14 +144,12 @@ class Scanner3DEngine {
         e.preventDefault();
         const coords = this.getCanvasCoords(e);
         
-        // Limitar dentro das margens do canvas
         const relX = Math.min(1.0, Math.max(0.0, coords.x / this.canvas.width));
         const relY = Math.min(1.0, Math.max(0.0, coords.y / this.canvas.height));
 
         this.nodes[this.draggedNode].x = relX;
         this.nodes[this.draggedNode].y = relY;
 
-        // Se movermos os landmarks laterais, atualizar valores de sincronia dos sliders
         this.syncNodesToSliders();
 
         this.redraw();
@@ -192,9 +188,6 @@ class Scanner3DEngine {
         this.draggedNode = null;
     }
 
-    /**
-     * Sincroniza a largura dos nós com os inputs/sliders da interface gráfica (se existirem)
-     */
     syncNodesToSliders() {
         if (this.draggedNode && this.draggedNode !== "face") {
             const shWidth = Math.abs(this.nodes.shoulderR.x - this.nodes.shoulderL.x) * 125;
@@ -228,7 +221,7 @@ class Scanner3DEngine {
     }
 
     /**
-     * Desenha toda a HUD cibernética e nós de landmarks arrastáveis
+     * Desenha a HUD com a nova malha corporal tridimensional volumétrica e contornada
      */
     redraw() {
         if (!this.canvas || !this.ctx) return;
@@ -236,116 +229,316 @@ class Scanner3DEngine {
         const w = this.canvas.width;
         const h = this.canvas.height;
 
+        // Limpar o frame do canvas de sobreposição (mesh-canvas)
         this.ctx.clearRect(0, 0, w, h);
 
-        const colorIce = "rgba(242, 244, 247, 0.85)";
-        const colorBurgundy = "rgba(217, 4, 41, 0.9)";
+        const colorIce = "rgba(242, 244, 247, 0.75)";
+        const colorBurgundy = "rgba(217, 4, 41, 0.8)";
+        const colorBurgundyMesh = "rgba(217, 4, 41, 0.15)";
         const colorTeal = "#00f5d4";
 
-        // 1. Desenhar Conexões do Esqueleto Cibernético
-        const connections = [
-            ["shoulderL", "shoulderR"],
-            ["shoulderL", "waistL"], ["shoulderR", "waistR"],
-            ["waistL", "hipL"], ["waistR", "hipR"],
-            ["hipL", "hipR"],
-            ["hipL", "kneeL"], ["kneeL", "ankleL"],
-            ["hipR", "kneeR"], ["kneeR", "ankleR"]
-        ];
-
-        this.ctx.strokeStyle = colorIce;
-        this.ctx.lineWidth = 2.5;
-        this.ctx.shadowBlur = 6;
-        this.ctx.shadowColor = "rgba(255, 255, 255, 0.4)";
-
-        connections.forEach(([p1, p2]) => {
-            const n1 = this.nodes[p1];
-            const n2 = this.nodes[p2];
-            if (n1 && n2) {
-                this.ctx.beginPath();
-                this.ctx.moveTo(n1.x * w, n1.y * h);
-                this.ctx.lineTo(n2.x * w, n2.y * h);
-                this.ctx.stroke();
-            }
-        });
-        
-        // Destacar a linha de silhueta da Cintura com Borgonha neon
+        // ==========================================
+        // 1. RENDERIZAÇÃO DA GRELHA 3D DO TORSO
+        // ==========================================
+        const nSL = this.nodes.shoulderL;
+        const nSR = this.nodes.shoulderR;
         const nWL = this.nodes.waistL;
         const nWR = this.nodes.waistR;
-        if (nWL && nWR) {
-            this.ctx.strokeStyle = colorBurgundy;
-            this.ctx.lineWidth = 4;
-            this.ctx.shadowBlur = 10;
-            this.ctx.shadowColor = colorBurgundy;
-            this.ctx.beginPath();
-            this.ctx.moveTo(nWL.x * w, nWL.y * h);
-            this.ctx.lineTo(nWR.x * w, nWR.y * h);
-            this.ctx.stroke();
+        const nHL = this.nodes.hipL;
+        const nHR = this.nodes.hipR;
+
+        if (nSL && nSR && nWL && nWR && nHL && nHR) {
+            const subdivisionsY = 9; // Linhas horizontais (latitude)
+            const subdivisionsX = 7; // Linhas verticais (longitude)
+            const gridPoints = [];
+
+            // Interpolação Bezier Quadrática para suavizar as bordas do corpo (Ombro -> Cintura -> Quadril)
+            const interpolateLeft = (u) => {
+                const x = (1 - u) * (1 - u) * nSL.x + 2 * (1 - u) * u * nWL.x + u * u * nHL.x;
+                const y = (1 - u) * (1 - u) * nSL.y + 2 * (1 - u) * u * nWL.y + u * u * nHL.y;
+                return { x, y };
+            };
+
+            const interpolateRight = (u) => {
+                const x = (1 - u) * (1 - u) * nSR.x + 2 * (1 - u) * u * nWR.x + u * u * nHR.x;
+                const y = (1 - u) * (1 - u) * nSR.y + 2 * (1 - u) * u * nWR.y + u * u * nHR.y;
+                return { x, y };
+            };
+
+            // Gerar matriz de coordenadas 3D da grelha do tronco com curvatura (Z-bulge projetado)
+            for (let i = 0; i <= subdivisionsY; i++) {
+                const u = i / subdivisionsY;
+                const ptL = interpolateLeft(u);
+                const ptR = interpolateRight(u);
+
+                const row = [];
+                for (let j = 0; j <= subdivisionsX; j++) {
+                    const v = j / subdivisionsX;
+
+                    // Interpolação linear da linha reta horizontal
+                    const straightX = (1 - v) * ptL.x + v * ptR.x;
+                    const straightY = (1 - v) * ptL.y + v * ptR.y;
+
+                    // Simular curvatura 3D cilíndrica abaixando os pontos centrais (Efeito de Profundidade Olhando de Cima)
+                    // A profundidade Z é uma curva senoidal que atinge o pico no centro
+                    const zFactor = Math.sin(v * Math.PI);
+                    const widthDistance = Math.abs(ptR.x - ptL.x);
+                    
+                    // bows down slightly (Y-offset proportional to width) to show volume
+                    const depthBulgeY = widthDistance * 0.12 * zFactor; 
+
+                    row.push({
+                        x: straightX * w,
+                        y: (straightY + depthBulgeY) * h
+                    });
+                }
+                gridPoints.push(row);
+            }
+
+            // A. Desenhar e preencher os quadriláteros da malha 3D (para dar corpo ao scanner)
+            this.ctx.fillStyle = "rgba(217, 4, 41, 0.022)";
+            for (let i = 0; i < subdivisionsY; i++) {
+                for (let j = 0; j < subdivisionsX; j++) {
+                    const p1 = gridPoints[i][j];
+                    const p2 = gridPoints[i][j+1];
+                    const p3 = gridPoints[i+1][j+1];
+                    const p4 = gridPoints[i+1][j];
+
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(p1.x, p1.y);
+                    this.ctx.lineTo(p2.x, p2.y);
+                    this.ctx.lineTo(p3.x, p3.y);
+                    this.ctx.lineTo(p4.x, p4.y);
+                    this.ctx.closePath();
+                    this.ctx.fill();
+                }
+            }
+
+            // B. Desenhar as linhas de latitude da grade (curvas horizontais)
+            this.ctx.strokeStyle = colorBurgundyMesh;
+            this.ctx.lineWidth = 1.0;
+            for (let i = 0; i <= subdivisionsY; i++) {
+                // Destacar linhas estruturais (Ombro, Cintura e Quadril) com maior brilho
+                if (i === 0 || i === subdivisionsY || i === Math.floor(subdivisionsY * 0.55)) {
+                    this.ctx.strokeStyle = "rgba(217, 4, 41, 0.65)";
+                    this.ctx.lineWidth = 2.0;
+                } else {
+                    this.ctx.strokeStyle = colorBurgundyMesh;
+                    this.ctx.lineWidth = 1.0;
+                }
+
+                this.ctx.beginPath();
+                this.ctx.moveTo(gridPoints[i][0].x, gridPoints[i][0].y);
+                for (let j = 1; j <= subdivisionsX; j++) {
+                    this.ctx.lineTo(gridPoints[i][j].x, gridPoints[i][j].y);
+                }
+                this.ctx.stroke();
+            }
+
+            // C. Desenhar as linhas de longitude da grade (curvas verticais de volume)
+            this.ctx.strokeStyle = colorBurgundyMesh;
+            this.ctx.lineWidth = 1.0;
+            for (let j = 0; j <= subdivisionsX; j++) {
+                this.ctx.beginPath();
+                this.ctx.moveTo(gridPoints[0][j].x, gridPoints[0][j].y);
+                for (let i = 1; i <= subdivisionsY; i++) {
+                    this.ctx.lineTo(gridPoints[i][j].x, gridPoints[i][j].y);
+                }
+                this.ctx.stroke();
+            }
         }
 
-        this.ctx.shadowBlur = 0; // Reset
+        // ==========================================
+        // 2. RENDERIZAÇÃO DE MEMBROS CILÍNDRICOS 3D
+        // ==========================================
+        // Definir os membros/ossos ativos do scanner corporal
+        const limbs = [
+            { start: nHL, end: this.nodes.kneeL, thicknessRel: 0.055 }, // Coxa Esq
+            { start: this.nodes.kneeL, end: this.nodes.ankleL, thicknessRel: 0.045 }, // Perna Esq
+            { start: nHR, end: this.nodes.kneeR, thicknessRel: 0.055 }, // Coxa Dir
+            { start: this.nodes.kneeR, end: this.nodes.ankleR, thicknessRel: 0.045 }  // Perna Dir
+        ];
 
-        // 2. Desenhar o Anel de Amostragem do Rosto (Face Ring)
+        limbs.forEach(limb => {
+            if (limb.start && limb.end) {
+                const ax = limb.start.x * w;
+                const ay = limb.start.y * h;
+                const bx = limb.end.x * w;
+                const by = limb.end.y * h;
+
+                const dx = bx - ax;
+                const dy = by - ay;
+                const length = Math.hypot(dx, dy);
+                if (length === 0) return;
+
+                // Vetor perpendicular normalizado para calcular as bordas cilíndricas
+                const nx = -dy / length;
+                const ny = dx / length;
+
+                // Definir espessura em pixels proporcional à largura do tronco
+                const torsoWidth = Math.abs(nSR.x - nSL.x) * w;
+                const thickness = torsoWidth * limb.thicknessRel;
+
+                const ringCount = 5;
+                const ringPoints = [];
+
+                // Gerar anéis cilíndricos e suas bordas laterais
+                for (let k = 0; k <= ringCount; k++) {
+                    const t = k / ringCount;
+                    const cx = (1 - t) * ax + t * bx;
+                    const cy = (1 - t) * ay + t * by;
+
+                    // Nós das laterais da coxa/perna
+                    const leftX = cx + nx * thickness;
+                    const leftY = cy + ny * thickness;
+                    const rightX = cx - nx * thickness;
+                    const rightY = cy - ny * thickness;
+
+                    ringPoints.push({ cx, cy, leftX, leftY, rightX, rightY, t });
+                }
+
+                // A. Desenhar as laterais estruturais do cilindro do membro
+                this.ctx.strokeStyle = "rgba(242, 244, 247, 0.4)";
+                this.ctx.lineWidth = 1.5;
+                this.ctx.beginPath();
+                this.ctx.moveTo(ringPoints[0].leftX, ringPoints[0].leftY);
+                for (let k = 1; k <= ringCount; k++) {
+                    this.ctx.lineTo(ringPoints[k].leftX, ringPoints[k].leftY);
+                }
+                this.ctx.stroke();
+
+                this.ctx.beginPath();
+                this.ctx.moveTo(ringPoints[0].rightX, ringPoints[0].rightY);
+                for (let k = 1; k <= ringCount; k++) {
+                    this.ctx.lineTo(ringPoints[k].rightX, ringPoints[k].rightY);
+                }
+                this.ctx.stroke();
+
+                // B. Desenhar elipses 3D ao longo do membro para simular profundidade tubular
+                this.ctx.strokeStyle = "rgba(242, 244, 247, 0.25)";
+                this.ctx.lineWidth = 1.0;
+                
+                const boneAngle = Math.atan2(dy, dx);
+
+                ringPoints.forEach(ring => {
+                    this.ctx.beginPath();
+                    // Desenhar a elipse inclinada perpendicularmente ao osso
+                    this.ctx.ellipse(
+                        ring.cx, ring.cy, 
+                        thickness, thickness * 0.35, 
+                        boneAngle + Math.PI / 2, 
+                        0, Math.PI * 2
+                    );
+                    this.ctx.stroke();
+
+                    // Adicionar uma leve cor de preenchimento para simular densidade física
+                    this.ctx.fillStyle = "rgba(242, 244, 247, 0.012)";
+                    this.ctx.fill();
+                });
+            }
+        });
+
+        // ==========================================
+        // 3. RENDERIZAÇÃO DA CÚPULA GEODÉSICA DO ROSTO (3D Dome)
+        // ==========================================
         const faceNode = this.nodes.face;
         if (faceNode) {
             const faceX = faceNode.x * w;
             const faceY = faceNode.y * h;
             const radius = faceNode.radiusRel * w;
 
-            // Halo pulsante externo
+            // Halo circular exterior de base (Verde Neon)
             this.ctx.strokeStyle = colorTeal;
-            this.ctx.lineWidth = 2;
-            this.ctx.setLineDash([4, 4]);
+            this.ctx.lineWidth = 2.5;
             this.ctx.shadowBlur = 12;
             this.ctx.shadowColor = colorTeal;
             this.ctx.beginPath();
             this.ctx.arc(faceX, faceY, radius, 0, Math.PI * 2);
             this.ctx.stroke();
-            this.ctx.setLineDash([]); // Reset dash
+            this.ctx.shadowBlur = 0; // Reset
 
-            // Retículo central
+            // Desenhar curvas de longitude tridimensional (Grelha Esférica Vertical)
+            this.ctx.strokeStyle = "rgba(0, 245, 212, 0.4)";
+            this.ctx.lineWidth = 1.0;
+            const longitudeSteps = [-0.65, -0.35, 0, 0.35, 0.65];
+            
+            longitudeSteps.forEach(scale => {
+                this.ctx.beginPath();
+                // Elipses verticais estreitas representando o volume esférico
+                this.ctx.ellipse(
+                    faceX, faceY, 
+                    radius * Math.abs(scale), radius, 
+                    0, 
+                    0, Math.PI * 2
+                );
+                this.ctx.stroke();
+            });
+
+            // Desenhar curvas de latitude tridimensional (Grelha Esférica Horizontal)
+            const latitudeSteps = [-0.65, -0.3, 0, 0.3, 0.65];
+            latitudeSteps.forEach(scale => {
+                const latY = faceY + scale * radius;
+                // O raio da linha horizontal encolhe conforme subimos/descemos na esfera
+                const latRadX = radius * Math.cos(Math.asin(scale));
+
+                this.ctx.beginPath();
+                this.ctx.ellipse(
+                    faceX, latY, 
+                    latRadX, latRadX * 0.28, 
+                    0, 
+                    0, Math.PI * 2
+                );
+                this.ctx.stroke();
+            });
+
+            // Ponto central de fixação do laser
             this.ctx.fillStyle = colorTeal;
             this.ctx.beginPath();
-            this.ctx.arc(faceX, faceY, 3, 0, Math.PI * 2);
+            this.ctx.arc(faceX, faceY, 3.5, 0, Math.PI * 2);
             this.ctx.fill();
 
-            // Etiqueta identificadora
-            this.ctx.shadowBlur = 0;
-            this.ctx.fillStyle = "rgba(7, 8, 10, 0.85)";
-            this.ctx.fillRect(faceX - 55, faceY - radius - 20, 110, 16);
+            // Etiqueta Identificadora Superior Estilizada
+            this.ctx.fillStyle = "rgba(7, 8, 10, 0.9)";
+            this.ctx.fillRect(faceX - 58, faceY - radius - 22, 116, 16);
             this.ctx.strokeStyle = colorTeal;
-            this.ctx.lineWidth = 1;
-            this.ctx.strokeRect(faceX - 55, faceY - radius - 20, 110, 16);
+            this.ctx.lineWidth = 1.2;
+            this.ctx.strokeRect(faceX - 58, faceY - radius - 22, 116, 16);
 
             this.ctx.fillStyle = colorIce;
-            this.ctx.font = "bold 9px monospace";
-            this.ctx.fillText("TOM DE PELE", faceX - 31, faceY - radius - 9);
+            this.ctx.font = "bold 8px monospace";
+            this.ctx.fillText("ESCANEADOR 3D FACIAL", faceX - 52, faceY - radius - 11);
         }
 
-        // 3. Desenhar Nós Articulares Interativos Arrastáveis
+        // ==========================================
+        // 4. RENDERIZAÇÃO DOS NÓS ARTICULARES DE CONTROLE (Landmarks)
+        // ==========================================
         for (const [key, node] of Object.entries(this.nodes)) {
-            if (node.isFace) continue; // Face já desenhado acima
+            if (node.isFace) continue;
 
             const nx = node.x * w;
             const ny = node.y * h;
 
-            // Halo ativo de seleção
             const isDragging = this.draggedNode === key;
+
+            // Halo difuso de acionamento
             this.ctx.fillStyle = isDragging ? "rgba(0, 245, 212, 0.45)" : "rgba(217, 4, 41, 0.3)";
             this.ctx.beginPath();
-            this.ctx.arc(nx, ny, 7.5, 0, Math.PI * 2);
+            this.ctx.arc(nx, ny, 8.5, 0, Math.PI * 2);
             this.ctx.fill();
 
-            // Ponto nuclear brilhante
+            // Núcleo brilhante
             this.ctx.fillStyle = isDragging ? colorTeal : colorIce;
             this.ctx.beginPath();
-            this.ctx.arc(nx, ny, 3.5, 0, Math.PI * 2);
+            this.ctx.arc(nx, ny, 4.0, 0, Math.PI * 2);
             this.ctx.fill();
         }
 
-        // 4. Desenhar a Linha de Varredura Laser Cosmética
-        this.ctx.strokeStyle = "rgba(217, 4, 41, 0.5)";
-        this.ctx.lineWidth = 1.5;
-        this.ctx.shadowBlur = 8;
+        // ==========================================
+        // 5. LINHA DO LASER DE VARREDURA 3D
+        // ==========================================
+        this.ctx.strokeStyle = "rgba(217, 4, 41, 0.55)";
+        this.ctx.lineWidth = 1.8;
+        this.ctx.shadowBlur = 10;
         this.ctx.shadowColor = colorBurgundy;
         this.ctx.beginPath();
         this.ctx.moveTo(0, this.scanY);
@@ -353,18 +546,20 @@ class Scanner3DEngine {
         this.ctx.stroke();
         this.ctx.shadowBlur = 0; // Reset
 
-        // 5. Escrever o Biotipo Calculado no HUD Interno do Canvas
+        // ==========================================
+        // 6. HUD INTERNO COM MÉTRIAS DE BIOTIPO 3D
+        // ==========================================
         const metrics = this.analyzeBodyMetrics();
         if (metrics) {
-            this.ctx.fillStyle = "rgba(7, 8, 10, 0.9)";
-            this.ctx.fillRect(15, 15, 200, 48);
+            this.ctx.fillStyle = "rgba(7, 8, 10, 0.92)";
+            this.ctx.fillRect(15, 15, 210, 48);
             this.ctx.strokeStyle = colorBurgundy;
             this.ctx.lineWidth = 1.5;
-            this.ctx.strokeRect(15, 15, 200, 48);
+            this.ctx.strokeRect(15, 15, 210, 48);
 
-            this.ctx.fillStyle = "rgba(217, 4, 41, 0.9)";
+            this.ctx.fillStyle = "rgba(217, 4, 41, 0.95)";
             this.ctx.font = "bold 9px monospace";
-            this.ctx.fillText("BIOTIPO DETECTADO LIVE", 22, 28);
+            this.ctx.fillText("VARREDURA VOLUMÉTRICA 3D", 22, 28);
             
             this.ctx.fillStyle = colorIce;
             this.ctx.font = "bold 14px 'Space Grotesk', sans-serif";
