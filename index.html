@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Estúdio de Visagismo 3D & Análise Natural</title>
+    
+    <!-- Pré-carregamento direto da IA de Pose do MediaPipe para evitar delays -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+    
+    <!-- Folha de Estilos de Alto Contraste Borgonha e Branco Gelo -->
+    <link rel="stylesheet" href="index.css">
+</head>
+<body>
+
+    <div class="app-container">
+        <!-- 🏛️ CABEÇALHO CIENTÍFICO -->
+        <header>
+            <h1 class="logo-text">Estúdio de Visagismo 3D</h1>
+            <div class="status-badge-container">
+                <span class="status-indicator"></span>
+                <span class="status-text">Motor Local Ativo</span>
+            </div>
+        </header>
+
+        <!-- 🏢 PAINEL PRINCIPAL SIMÉTRICO (2 COLUNAS) -->
+        <main>
+            <div class="scanner-grid">
+                <!-- COLUNA ESQUERDA: Scanner Corporal e Controles -->
+                <div class="scanner-panel">
+                    <div class="scanner-view-container" id="drop-zone">
+                        <div class="upload-hud" id="upload-hud">
+                            <div class="upload-icon">📤</div>
+                            <h3>Arraste sua foto ou clique para carregar</h3>
+                            <p>PNG, JPG ou JPEG (Corpo inteiro sob luz natural)</p>
+                            <button class="premium-btn" onclick="triggerFileInput()">Selecionar Foto</button>
+                            <input type="file" id="image-input" class="file-input" accept="image/*" onchange="handleFileUpload(event)">
+                        </div>
+                        
+                        <div class="canvas-container" id="canvas-container" style="display: none;">
+                            <!-- Canvas 1: Imagem Original corrigida com AWB (Balanço de Brancos) -->
+                            <canvas id="image-canvas" class="scanner-canvas"></canvas>
+                            <!-- Canvas 2: Mesh Neon do Esqueleto 3D (Borgonha e Gelo) -->
+                            <canvas id="mesh-canvas" class="scanner-canvas"></canvas>
+                        </div>
+                    </div>
+                    
+                    <!-- Ações Rápidas do Visualizador -->
+                    <div class="scanner-actions" style="display: none;" id="scanner-actions-bar">
+                        <button class="premium-btn" onclick="runAnalysisWorkflow()">✨ Reanalisar Cenas</button>
+                        <button class="premium-btn secondary" onclick="resetScanner()">🔄 Novo Scanner</button>
+                    </div>
+
+                    <!-- Calibração de Proporções Corporal -->
+                    <div class="manual-control-card" style="display: none;" id="manual-tuning-panel">
+                        <h3>Ajuste Fino de Proporções</h3>
+                        <p class="card-subtitle">Utilize os controles abaixo se desejar recalcular as métricas 3D e refinar os resultados.</p>
+                        
+                        <div class="slider-group">
+                            <div class="slider-header">
+                                <span>Largura dos Ombros</span>
+                                <span id="shoulder-val">50%</span>
+                            </div>
+                            <input type="range" class="slider-input" id="slider-shoulder" min="20" max="100" value="50" oninput="onManualTune()">
+                        </div>
+                        <div class="slider-group">
+                            <div class="slider-header">
+                                <span>Medida da Cintura</span>
+                                <span id="waist-val">42%</span>
+                            </div>
+                            <input type="range" class="slider-input" id="slider-waist" min="20" max="100" value="42" oninput="onManualTune()">
+                        </div>
+                        <div class="slider-group">
+                            <div class="slider-header">
+                                <span>Largura dos Quadris</span>
+                                <span id="hip-val">50%</span>
+                            </div>
+                            <input type="range" class="slider-input" id="slider-hip" min="20" max="100" value="50" oninput="onManualTune()">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- COLUNA DIREITA: Resultados Analíticos -->
+                <div class="results-panel">
+                    <!-- Placeholder Inicial -->
+                    <div class="results-placeholder" id="results-placeholder">
+                        <div class="placeholder-icon">🧘‍♀️</div>
+                        <h3>Aguardando Carregamento</h3>
+                        <p>A análise visagista matemática, balanço de brancos CIELAB e escaner corporal do MediaPipe serão executados 100% de forma automática na foto fornecida.</p>
+                    </div>
+
+                    <!-- HUD de Resultados Ativos -->
+                    <div class="visagist-results-hud" id="results-hud" style="display: none;">
+                        <div class="result-card">
+                            <div class="result-badge">Estação Cromática Pessoal</div>
+                            <div class="result-value" id="val-season">-</div>
+                            <div class="result-description" id="desc-season">-</div>
+                            
+                            <div class="palette-viewer-container">
+                                <span class="palette-title">Paleta de Cores Recomendada:</span>
+                                <div class="palette-colors-row" id="palette-row">
+                                    <!-- Injetado via JS -->
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="result-card">
+                            <div class="result-badge">Arquitetura Corporal Antropométrica</div>
+                            <div class="result-value" id="val-body">-</div>
+                            <div class="result-description" id="desc-body">-</div>
+                        </div>
+
+                        <div class="result-card">
+                            <div class="result-badge">Diretrizes de Estilo e Modelagem</div>
+                            <div class="result-description">
+                                <strong>Cortes e Decotes:</strong> <span id="val-cuts">-</span><br><br>
+                                <strong>Tecidos Ideais:</strong> <span id="val-fabrics">-</span><br><br>
+                                <strong>Reflexo e Acabamento:</strong> <span id="val-finish">-</span><br><br>
+                                <strong>Acessórios Recomendados:</strong> <span id="val-accessories">-</span>
+                            </div>
+                        </div>
+
+                        <div class="result-card">
+                            <div class="result-badge">👑 Alta Joalheria & Metais Nobres</div>
+                            <div class="result-description">
+                                <div style="margin-bottom: 12px;">
+                                    <strong>Metais Recomendados:</strong>
+                                    <div id="metals-badge-row" class="jewelry-badge-row">
+                                        <!-- Injetado via JS -->
+                                    </div>
+                                </div>
+                                <div>
+                                    <strong>Gemas Preciosas Correspondentes:</strong>
+                                    <div id="jewels-badge-row" class="jewelry-badge-row">
+                                        <!-- Injetado via JS -->
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- 🔮 LOCAL SCRIPTS LOADERS -->
+    <script src="visagismo.js"></script>
+    <script src="scanner3d.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

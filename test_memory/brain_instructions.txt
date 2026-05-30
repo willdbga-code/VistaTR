@@ -1,0 +1,14 @@
+# 📝 Instruções de Teste do Cérebro (Memória Local)
+
+Este é um arquivo de teste criado para verificar se o seu "NotebookLM Local" está lendo e retendo informações corretamente.
+
+## Regras de Negócio do Projeto TR:
+1. **Nome do Projeto:** Projeto TR (Tech Retrieval).
+2. **Linguagem Principal:** Python 3.10+ e Jupyter Notebooks.
+3. **Cores do Design System:**
+   - Primária: `#A30000` (Vermelho Frio / Borgonha)
+   - Secundária: `#F2F4F7` (Branco Gelo)
+   - Fundo: `#0F0C1B` (Ultra Dark / Space Black)
+4. **Palavra-chave Secreta do Projeto:** "CRISTAL-AZUL". Esta palavra foi adicionada aqui exclusivamente para você testar a busca semântica da IA no notebook. Se você perguntar pelo termo secreto e ela retornar "CRISTAL-AZUL", significa que sua memória persistente está funcionando perfeitamente!
+
+Seja bem-vindo ao futuro da cognição aumentada local!
