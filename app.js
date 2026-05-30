@@ -502,6 +502,14 @@ function resetScanner() {
     
     // Limpar input de arquivos
     document.getElementById("image-input").value = "";
+
+    // Resetar estado de corte e landmarks ocultos do motor
+    if (scannerEngine) {
+        scannerEngine.isCroppedMode = false;
+        for (const node of Object.values(scannerEngine.nodes)) {
+            if (node.isLeg) node.hidden = false;
+        }
+    }
 }
 
 /**

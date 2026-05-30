@@ -7,6 +7,7 @@
  * 3. Classificação visagista de silhuetas calculada matematicamente sob demanda.
  * 4. Renderização cibernética neon Borgonha/Rubi e Verde Neon no canvas.
  * 5. Nova Renderização de Malha Volumétrica 3D (Grelha Torácica, Membros Cilíndricos e Cúpula Facial Esférica).
+ * 6. EXPANSÃO FASE 4: 17 landmarks (pescoço, peito, cotovelos, punhos) e Modo Meio Corpo (Fotos Cortadas).
  */
 
 class Scanner3DEngine {
@@ -16,20 +17,27 @@ class Scanner3DEngine {
         this.onUpdateCallback = null;
         this.draggedNode = null;
         this.hitRadius = 15; // pixels de tolerância para clique
+        this.isCroppedMode = false; // Ativado se a foto for cortada acima do joelho
 
-        // Coordenadas relativas padrão (0.0 a 1.0) para os nós de calibração
+        // Coordenadas relativas padrão (0.0 a 1.0) para os 17 nós de calibração
         this.nodes = {
-            face: { x: 0.50, y: 0.20, label: "Rosto (Cor da Pele)", isFace: true, radiusRel: 0.055 },
+            face: { x: 0.50, y: 0.17, label: "Rosto (Cor da Pele)", isFace: true, radiusRel: 0.055 },
+            neck: { x: 0.50, y: 0.25, label: "Pescoço" },
+            chest: { x: 0.50, y: 0.38, label: "Busto/Peito", isChest: true },
             shoulderL: { x: 0.38, y: 0.34, label: "Ombro Esq" },
             shoulderR: { x: 0.62, y: 0.34, label: "Ombro Dir" },
+            elbowL: { x: 0.30, y: 0.45, label: "Cotovelo Esq" },
+            elbowR: { x: 0.70, y: 0.45, label: "Cotovelo Dir" },
+            wristL: { x: 0.26, y: 0.56, label: "Punho Esq" },
+            wristR: { x: 0.74, y: 0.56, label: "Punho Dir" },
             waistL: { x: 0.42, y: 0.50, label: "Cintura Esq" },
             waistR: { x: 0.58, y: 0.50, label: "Cintura Dir" },
             hipL: { x: 0.38, y: 0.65, label: "Quadril Esq" },
             hipR: { x: 0.62, y: 0.65, label: "Quadril Dir" },
-            kneeL: { x: 0.40, y: 0.78, label: "Joelho Esq" },
-            kneeR: { x: 0.60, y: 0.78, label: "Joelho Dir" },
-            ankleL: { x: 0.41, y: 0.90, label: "Tornozelo Esq" },
-            ankleR: { x: 0.59, y: 0.90, label: "Tornozelo Dir" }
+            kneeL: { x: 0.40, y: 0.78, label: "Joelho Esq", isLeg: true },
+            kneeR: { x: 0.60, y: 0.78, label: "Joelho Dir", isLeg: true },
+            ankleL: { x: 0.41, y: 0.90, label: "Tornozelo Esq", isLeg: true },
+            ankleR: { x: 0.59, y: 0.90, label: "Tornozelo Dir", isLeg: true }
         };
 
         // Estado do laser de varredura cosmética
@@ -91,8 +99,174 @@ class Scanner3DEngine {
         this.nodes.hipL.x = center - hipHalf;
         this.nodes.hipR.x = center + hipHalf;
 
+        // Atualizar braços proporcionalmente com base no ombro
+        this.nodes.elbowL.x = center - shHalf - 0.08;
+        this.nodes.elbowR.x = center + shHalf + 0.08;
+        this.nodes.wristL.x = center - shHalf - 0.12;
+        this.nodes.wristR.x = center + shHalf + 0.12;
+
         this.redraw();
         this.triggerUpdate();
+    }
+
+    /**
+     * Mapeia as coordenadas absolutas de pontos identificados pela IA (BlazePose)
+     * e atualiza os landmarks relativos do nosso motor de física local.
+     */
+    importBlazePoseKeypoints(keypoints, imageWidth, imageHeight) {
+        if (!keypoints || keypoints.length === 0) return;
+
+        const findKp = (nameOrIdx) => {
+            return keypoints.find(kp => kp.name === nameOrIdx || kp.index === nameOrIdx);
+        };
+
+        // Identificar pontos do BlazePose (Topology COCO/MediaPipe)
+        const kpNose = findKp("nose") || findKp(0);
+        const kpLShoulder = findKp("left_shoulder") || findKp(11);
+        const kpRShoulder = findKp("right_shoulder") || findKp(12);
+        const kpLHip = findKp("left_hip") || findKp(23);
+        const kpRHip = findKp("right_hip") || findKp(24);
+        
+        // Membros superiores (Braços) - FASE 4
+        const kpLElbow = findKp("left_elbow") || findKp(13);
+        const kpRElbow = findKp("right_elbow") || findKp(14);
+        const kpLWrist = findKp("left_wrist") || findKp(15);
+        const kpRWrist = findKp("right_wrist") || findKp(16);
+
+        // Membros inferiores (Pernas)
+        const kpLKnee = findKp("left_knee") || findKp(25);
+        const kpRKnee = findKp("right_knee") || findKp(26);
+        const kpLAnkle = findKp("left_ankle") || findKp(27);
+        const kpRAnkle = findKp("right_ankle") || findKp(28);
+
+        const toRel = (kp) => {
+            if (!kp || (kp.score !== undefined && kp.score < 0.25)) return null;
+            return {
+                x: Math.min(1.0, Math.max(0.0, kp.x / imageWidth)),
+                y: Math.min(1.0, Math.max(0.0, kp.y / imageHeight))
+            };
+        };
+
+        const relNose = toRel(kpNose);
+        const relLSh = toRel(kpLShoulder);
+        const relRSh = toRel(kpRShoulder);
+        const relLHip = toRel(kpLHip);
+        const relRHip = toRel(kpRHip);
+        
+        const relLElbow = toRel(kpLElbow);
+        const relRElbow = toRel(kpRElbow);
+        const relLWrist = toRel(kpLWrist);
+        const relRWrist = toRel(kpRWrist);
+
+        const relLKnee = toRel(kpLKnee);
+        const relRKnee = toRel(kpRKnee);
+        const relLAnkle = toRel(kpLAnkle);
+        const relRAnkle = toRel(kpRAnkle);
+
+        // RESET DOS ESTADOS DE HIDDEN
+        for (const node of Object.values(this.nodes)) {
+            if (node.isLeg) node.hidden = false;
+        }
+        this.isCroppedMode = false;
+
+        // 1. Mapear Rosto (Face Ring)
+        if (relNose) {
+            this.nodes.face.x = relNose.x;
+            this.nodes.face.y = Math.max(0.05, relNose.y - 0.03);
+        }
+        
+        // 2. Mapear Ombros
+        if (relLSh) {
+            this.nodes.shoulderL.x = relLSh.x;
+            this.nodes.shoulderL.y = relLSh.y;
+        }
+        if (relRSh) {
+            this.nodes.shoulderR.x = relRSh.x;
+            this.nodes.shoulderR.y = relRSh.y;
+        }
+
+        // 3. Mapear Pescoço (Neck) - Interpolado a meio caminho entre Rosto e Ombros
+        if (relNose && relLSh && relRSh) {
+            const shCenterY = (relLSh.y + relRSh.y) / 2;
+            const shCenterX = (relLSh.x + relRSh.x) / 2;
+            this.nodes.neck.x = shCenterX;
+            this.nodes.neck.y = relNose.y * 0.4 + shCenterY * 0.6;
+        }
+
+        // 4. Mapear Cintura e Quadris
+        if (relLHip) {
+            this.nodes.hipL.x = relLHip.x;
+            this.nodes.hipL.y = relLHip.y;
+        }
+        if (relRHip) {
+            this.nodes.hipR.x = relRHip.x;
+            this.nodes.hipR.y = relRHip.y;
+        }
+
+        // Interpolar Cintura (63% quadril, 37% ombro) para simular biotipo
+        if (relLSh && relLHip) {
+            this.nodes.waistL.x = relLHip.x * 0.63 + relLSh.x * 0.37;
+            this.nodes.waistL.y = relLHip.y * 0.63 + relLSh.y * 0.37;
+        }
+        if (relRSh && relRHip) {
+            this.nodes.waistR.x = relRHip.x * 0.63 + relRSh.x * 0.37;
+            this.nodes.waistR.y = relRHip.y * 0.63 + relRSh.y * 0.37;
+        }
+
+        // 5. Mapear Peito/Busto (Chest) - Centralizado e ligeiramente abaixo do ombro
+        if (relLSh && relRSh) {
+            const shCenterX = (relLSh.x + relRSh.x) / 2;
+            const shCenterY = (relLSh.y + relRSh.y) / 2;
+            const waistCenterY = (this.nodes.waistL.y + this.nodes.waistR.y) / 2;
+            
+            this.nodes.chest.x = shCenterX;
+            this.nodes.chest.y = shCenterY + (waistCenterY - shCenterY) * 0.35;
+        }
+
+        // 6. Mapear Braços (Cotovelos e Punhos)
+        if (relLElbow) {
+            this.nodes.elbowL.x = relLElbow.x;
+            this.nodes.elbowL.y = relLElbow.y;
+        }
+        if (relRElbow) {
+            this.nodes.elbowR.x = relRElbow.x;
+            this.nodes.elbowR.y = relRElbow.y;
+        }
+        if (relLWrist) {
+            this.nodes.wristL.x = relLWrist.x;
+            this.nodes.wristL.y = relLWrist.y;
+        }
+        if (relRWrist) {
+            this.nodes.wristR.x = relRWrist.x;
+            this.nodes.wristR.y = relRWrist.y;
+        }
+
+        // 7. VERIFICAÇÃO AUTOMÁTICA DO MODO MEIO CORPO (Fotos Cortadas)
+        if (!relLKnee || !relRKnee || !relLAnkle || !relRAnkle || 
+            relLKnee.y > 0.95 || relRKnee.y > 0.95 || relLAnkle.y > 0.95 || relRAnkle.y > 0.95) {
+            
+            this.isCroppedMode = true;
+            this.nodes.kneeL.hidden = true;
+            this.nodes.kneeR.hidden = true;
+            this.nodes.ankleL.hidden = true;
+            this.nodes.ankleR.hidden = true;
+            console.log("[BlazePose] Perna(s) ausente(s) ou foto cortada. Mapeamento no MODO MEIO CORPO ativado!");
+        } else {
+            // Se pernas presentes, mapear
+            this.nodes.kneeL.x = relLKnee.x;
+            this.nodes.kneeL.y = relLKnee.y;
+            this.nodes.kneeR.x = relRKnee.x;
+            this.nodes.kneeR.y = relRKnee.y;
+            this.nodes.ankleL.x = relLAnkle.x;
+            this.nodes.ankleL.y = relLAnkle.y;
+            this.nodes.ankleR.x = relRAnkle.x;
+            this.nodes.ankleR.y = relRAnkle.y;
+        }
+
+        console.log("[BlazePose Import] Mapeamento corporal de 17 Landmarks concluído com sucesso!");
+        this.redraw();
+        this.triggerUpdate();
+        this.syncNodesToSliders();
     }
 
     /**
@@ -114,6 +288,8 @@ class Scanner3DEngine {
         const h = this.canvas.height;
 
         for (const [key, node] of Object.entries(this.nodes)) {
+            if (node.hidden) continue; // Ignorar pontos ocultos no modo cropped
+
             const nodeX = node.x * w;
             const nodeY = node.y * h;
             const dist = Math.hypot(canvasX - nodeX, canvasY - nodeY);
@@ -149,6 +325,16 @@ class Scanner3DEngine {
 
         this.nodes[this.draggedNode].x = relX;
         this.nodes[this.draggedNode].y = relY;
+
+        // Se mover manualmente nós da perna para a extremidade inferior (> 96%), ocultá-los
+        if (this.nodes[this.draggedNode].isLeg && relY > 0.96) {
+            this.isCroppedMode = true;
+            this.nodes.kneeL.hidden = true;
+            this.nodes.kneeR.hidden = true;
+            this.nodes.ankleL.hidden = true;
+            this.nodes.ankleR.hidden = true;
+            this.draggedNode = null;
+        }
 
         this.syncNodesToSliders();
 
@@ -221,7 +407,7 @@ class Scanner3DEngine {
     }
 
     /**
-     * Desenha a HUD com a nova malha corporal tridimensional volumétrica e contornada
+     * Desenha toda a HUD cibernética e nós de landmarks arrastáveis com malha 3D
      */
     redraw() {
         if (!this.canvas || !this.ctx) return;
@@ -229,16 +415,15 @@ class Scanner3DEngine {
         const w = this.canvas.width;
         const h = this.canvas.height;
 
-        // Limpar o frame do canvas de sobreposição (mesh-canvas)
         this.ctx.clearRect(0, 0, w, h);
 
         const colorIce = "rgba(242, 244, 247, 0.75)";
-        const colorBurgundy = "rgba(217, 4, 41, 0.8)";
-        const colorBurgundyMesh = "rgba(217, 4, 41, 0.15)";
+        const colorBurgundy = "rgba(217, 4, 41, 0.85)";
+        const colorBurgundyMesh = "rgba(217, 4, 41, 0.16)";
         const colorTeal = "#00f5d4";
 
         // ==========================================
-        // 1. RENDERIZAÇÃO DA GRELHA 3D DO TORSO
+        // 1. RENDERIZAÇÃO DA GRELHA 3D DO TORSO (Com Z-Bust Proeminente no Peito)
         // ==========================================
         const nSL = this.nodes.shoulderL;
         const nSR = this.nodes.shoulderR;
@@ -246,26 +431,41 @@ class Scanner3DEngine {
         const nWR = this.nodes.waistR;
         const nHL = this.nodes.hipL;
         const nHR = this.nodes.hipR;
+        const nChest = this.nodes.chest;
 
-        if (nSL && nSR && nWL && nWR && nHL && nHR) {
-            const subdivisionsY = 9; // Linhas horizontais (latitude)
-            const subdivisionsX = 7; // Linhas verticais (longitude)
+        if (nSL && nSR && nWL && nWR && nHL && nHR && nChest) {
+            const subdivisionsY = 11; 
+            const subdivisionsX = 9; 
             const gridPoints = [];
 
-            // Interpolação Bezier Quadrática para suavizar as bordas do corpo (Ombro -> Cintura -> Quadril)
             const interpolateLeft = (u) => {
-                const x = (1 - u) * (1 - u) * nSL.x + 2 * (1 - u) * u * nWL.x + u * u * nHL.x;
-                const y = (1 - u) * (1 - u) * nSL.y + 2 * (1 - u) * u * nWL.y + u * u * nHL.y;
+                let x, y;
+                if (u < 0.5) {
+                    const t = u * 2;
+                    x = (1 - t) * nSL.x + t * nWL.x;
+                    y = (1 - t) * nSL.y + t * nWL.y;
+                } else {
+                    const t = (u - 0.5) * 2;
+                    x = (1 - t) * nWL.x + t * nHL.x;
+                    y = (1 - t) * nWL.y + t * nHL.y;
+                }
                 return { x, y };
             };
 
             const interpolateRight = (u) => {
-                const x = (1 - u) * (1 - u) * nSR.x + 2 * (1 - u) * u * nWR.x + u * u * nHR.x;
-                const y = (1 - u) * (1 - u) * nSR.y + 2 * (1 - u) * u * nWR.y + u * u * nHR.y;
+                let x, y;
+                if (u < 0.5) {
+                    const t = u * 2;
+                    x = (1 - t) * nSR.x + t * nWR.x;
+                    y = (1 - t) * nSR.y + t * nWR.y;
+                } else {
+                    const t = (u - 0.5) * 2;
+                    x = (1 - t) * nWR.x + t * nHR.x;
+                    y = (1 - t) * nWR.y + t * nHR.y;
+                }
                 return { x, y };
             };
 
-            // Gerar matriz de coordenadas 3D da grelha do tronco com curvatura (Z-bulge projetado)
             for (let i = 0; i <= subdivisionsY; i++) {
                 const u = i / subdivisionsY;
                 const ptL = interpolateLeft(u);
@@ -274,18 +474,13 @@ class Scanner3DEngine {
                 const row = [];
                 for (let j = 0; j <= subdivisionsX; j++) {
                     const v = j / subdivisionsX;
-
-                    // Interpolação linear da linha reta horizontal
                     const straightX = (1 - v) * ptL.x + v * ptR.x;
                     const straightY = (1 - v) * ptL.y + v * ptR.y;
 
-                    // Simular curvatura 3D cilíndrica abaixando os pontos centrais (Efeito de Profundidade Olhando de Cima)
-                    // A profundidade Z é uma curva senoidal que atinge o pico no centro
                     const zFactor = Math.sin(v * Math.PI);
                     const widthDistance = Math.abs(ptR.x - ptL.x);
-                    
-                    // bows down slightly (Y-offset proportional to width) to show volume
-                    const depthBulgeY = widthDistance * 0.12 * zFactor; 
+                    const bustWeight = 1.0 + 0.45 * Math.exp(-Math.pow(u - 0.25, 2) / 0.02);
+                    const depthBulgeY = widthDistance * 0.10 * zFactor * bustWeight; 
 
                     row.push({
                         x: straightX * w,
@@ -295,8 +490,8 @@ class Scanner3DEngine {
                 gridPoints.push(row);
             }
 
-            // A. Desenhar e preencher os quadriláteros da malha 3D (para dar corpo ao scanner)
-            this.ctx.fillStyle = "rgba(217, 4, 41, 0.022)";
+            // A. Preencher polígonos
+            this.ctx.fillStyle = "rgba(217, 4, 41, 0.026)";
             for (let i = 0; i < subdivisionsY; i++) {
                 for (let j = 0; j < subdivisionsX; j++) {
                     const p1 = gridPoints[i][j];
@@ -314,12 +509,12 @@ class Scanner3DEngine {
                 }
             }
 
-            // B. Desenhar as linhas de latitude da grade (curvas horizontais)
+            // B. Latitudes
             this.ctx.strokeStyle = colorBurgundyMesh;
             this.ctx.lineWidth = 1.0;
             for (let i = 0; i <= subdivisionsY; i++) {
-                // Destacar linhas estruturais (Ombro, Cintura e Quadril) com maior brilho
-                if (i === 0 || i === subdivisionsY || i === Math.floor(subdivisionsY * 0.55)) {
+                const u = i / subdivisionsY;
+                if (i === 0 || i === subdivisionsY || Math.abs(u - 0.25) < 0.02 || Math.abs(u - 0.5) < 0.02) {
                     this.ctx.strokeStyle = "rgba(217, 4, 41, 0.65)";
                     this.ctx.lineWidth = 2.0;
                 } else {
@@ -335,7 +530,7 @@ class Scanner3DEngine {
                 this.ctx.stroke();
             }
 
-            // C. Desenhar as linhas de longitude da grade (curvas verticais de volume)
+            // C. Longitudes
             this.ctx.strokeStyle = colorBurgundyMesh;
             this.ctx.lineWidth = 1.0;
             for (let j = 0; j <= subdivisionsX; j++) {
@@ -349,18 +544,70 @@ class Scanner3DEngine {
         }
 
         // ==========================================
-        // 2. RENDERIZAÇÃO DE MEMBROS CILÍNDRICOS 3D
+        // 2. RENDERIZAÇÃO DA GRELHA DO PESCOÇO (Neck Cylinder)
         // ==========================================
-        // Definir os membros/ossos ativos do scanner corporal
+        const nNeck = this.nodes.neck;
+        if (nNeck && faceNode) {
+            const neckTopX = faceNode.x * w;
+            const neckTopY = (faceNode.y + faceNode.radiusRel) * h;
+            const neckBottomX = nNeck.x * w;
+            const neckBottomY = nNeck.y * h;
+
+            const nSteps = 3;
+            const neckWidth = Math.abs(nSR.x - nSL.x) * w * 0.16; 
+
+            this.ctx.strokeStyle = "rgba(242, 244, 247, 0.22)";
+            this.ctx.lineWidth = 1.0;
+
+            for (let k = 0; k <= nSteps; k++) {
+                const t = k / nSteps;
+                const cx = (1 - t) * neckTopX + t * neckBottomX;
+                const cy = (1 - t) * neckTopY + t * neckBottomY;
+
+                this.ctx.beginPath();
+                this.ctx.ellipse(cx, cy, neckWidth, neckWidth * 0.25, 0, 0, Math.PI * 2);
+                this.ctx.stroke();
+
+                if (k === 0 || k === nSteps) {
+                    this.ctx.fillStyle = "rgba(242, 244, 247, 0.015)";
+                    this.ctx.fill();
+                }
+            }
+
+            this.ctx.strokeStyle = "rgba(242, 244, 247, 0.35)";
+            this.ctx.lineWidth = 1.2;
+            this.ctx.beginPath();
+            this.ctx.moveTo(neckTopX - neckWidth, neckTopY);
+            this.ctx.lineTo(neckBottomX - neckWidth, neckBottomY);
+            this.ctx.stroke();
+
+            this.ctx.beginPath();
+            this.ctx.moveTo(neckTopX + neckWidth, neckTopY);
+            this.ctx.lineTo(neckBottomX + neckWidth, neckBottomY);
+            this.ctx.stroke();
+        }
+
+        // ==========================================
+        // 3. RENDERIZAÇÃO DE MEMBROS CILÍNDRICOS 3D (Braços + Pernas)
+        // ==========================================
         const limbs = [
-            { start: nHL, end: this.nodes.kneeL, thicknessRel: 0.055 }, // Coxa Esq
-            { start: this.nodes.kneeL, end: this.nodes.ankleL, thicknessRel: 0.045 }, // Perna Esq
-            { start: nHR, end: this.nodes.kneeR, thicknessRel: 0.055 }, // Coxa Dir
-            { start: this.nodes.kneeR, end: this.nodes.ankleR, thicknessRel: 0.045 }  // Perna Dir
+            { start: nSL, end: this.nodes.elbowL, thicknessRel: 0.040, isUpper: true },
+            { start: this.nodes.elbowL, end: this.nodes.wristL, thicknessRel: 0.032 },
+            { start: nSR, end: this.nodes.elbowR, thicknessRel: 0.040, isUpper: true },
+            { start: this.nodes.elbowR, end: this.nodes.wristR, thicknessRel: 0.032 }
         ];
 
+        if (!this.isCroppedMode) {
+            limbs.push(
+                { start: nHL, end: this.nodes.kneeL, thicknessRel: 0.052, isLeg: true }, 
+                { start: this.nodes.kneeL, end: this.nodes.ankleL, thicknessRel: 0.042, isLeg: true }, 
+                { start: nHR, end: this.nodes.kneeR, thicknessRel: 0.052, isLeg: true }, 
+                { start: this.nodes.kneeR, end: this.nodes.ankleR, thicknessRel: 0.042, isLeg: true } 
+            );
+        }
+
         limbs.forEach(limb => {
-            if (limb.start && limb.end) {
+            if (limb.start && limb.end && !limb.start.hidden && !limb.end.hidden) {
                 const ax = limb.start.x * w;
                 const ay = limb.start.y * h;
                 const bx = limb.end.x * w;
@@ -371,24 +618,20 @@ class Scanner3DEngine {
                 const length = Math.hypot(dx, dy);
                 if (length === 0) return;
 
-                // Vetor perpendicular normalizado para calcular as bordas cilíndricas
                 const nx = -dy / length;
                 const ny = dx / length;
 
-                // Definir espessura em pixels proporcional à largura do tronco
                 const torsoWidth = Math.abs(nSR.x - nSL.x) * w;
                 const thickness = torsoWidth * limb.thicknessRel;
 
-                const ringCount = 5;
+                const ringCount = 4;
                 const ringPoints = [];
 
-                // Gerar anéis cilíndricos e suas bordas laterais
                 for (let k = 0; k <= ringCount; k++) {
                     const t = k / ringCount;
                     const cx = (1 - t) * ax + t * bx;
                     const cy = (1 - t) * ay + t * by;
 
-                    // Nós das laterais da coxa/perna
                     const leftX = cx + nx * thickness;
                     const leftY = cy + ny * thickness;
                     const rightX = cx - nx * thickness;
@@ -397,9 +640,8 @@ class Scanner3DEngine {
                     ringPoints.push({ cx, cy, leftX, leftY, rightX, rightY, t });
                 }
 
-                // A. Desenhar as laterais estruturais do cilindro do membro
-                this.ctx.strokeStyle = "rgba(242, 244, 247, 0.4)";
-                this.ctx.lineWidth = 1.5;
+                this.ctx.strokeStyle = limb.isLeg ? "rgba(242, 244, 247, 0.35)" : "rgba(0, 245, 212, 0.35)";
+                this.ctx.lineWidth = 1.2;
                 this.ctx.beginPath();
                 this.ctx.moveTo(ringPoints[0].leftX, ringPoints[0].leftY);
                 for (let k = 1; k <= ringCount; k++) {
@@ -414,15 +656,13 @@ class Scanner3DEngine {
                 }
                 this.ctx.stroke();
 
-                // B. Desenhar elipses 3D ao longo do membro para simular profundidade tubular
-                this.ctx.strokeStyle = "rgba(242, 244, 247, 0.25)";
-                this.ctx.lineWidth = 1.0;
+                this.ctx.strokeStyle = limb.isLeg ? "rgba(242, 244, 247, 0.22)" : "rgba(0, 245, 212, 0.20)";
+                this.ctx.lineWidth = 0.8;
                 
                 const boneAngle = Math.atan2(dy, dx);
 
                 ringPoints.forEach(ring => {
                     this.ctx.beginPath();
-                    // Desenhar a elipse inclinada perpendicularmente ao osso
                     this.ctx.ellipse(
                         ring.cx, ring.cy, 
                         thickness, thickness * 0.35, 
@@ -431,23 +671,20 @@ class Scanner3DEngine {
                     );
                     this.ctx.stroke();
 
-                    // Adicionar uma leve cor de preenchimento para simular densidade física
-                    this.ctx.fillStyle = "rgba(242, 244, 247, 0.012)";
+                    this.ctx.fillStyle = limb.isLeg ? "rgba(242, 244, 247, 0.008)" : "rgba(0, 245, 212, 0.008)";
                     this.ctx.fill();
                 });
             }
         });
 
         // ==========================================
-        // 3. RENDERIZAÇÃO DA CÚPULA GEODÉSICA DO ROSTO (3D Dome)
+        // 4. RENDERIZAÇÃO DA CÚPULA GEODÉSICA DO ROSTO (3D Dome)
         // ==========================================
-        const faceNode = this.nodes.face;
         if (faceNode) {
             const faceX = faceNode.x * w;
             const faceY = faceNode.y * h;
             const radius = faceNode.radiusRel * w;
 
-            // Halo circular exterior de base (Verde Neon)
             this.ctx.strokeStyle = colorTeal;
             this.ctx.lineWidth = 2.5;
             this.ctx.shadowBlur = 12;
@@ -455,16 +692,14 @@ class Scanner3DEngine {
             this.ctx.beginPath();
             this.ctx.arc(faceX, faceY, radius, 0, Math.PI * 2);
             this.ctx.stroke();
-            this.ctx.shadowBlur = 0; // Reset
+            this.ctx.shadowBlur = 0; 
 
-            // Desenhar curvas de longitude tridimensional (Grelha Esférica Vertical)
             this.ctx.strokeStyle = "rgba(0, 245, 212, 0.4)";
             this.ctx.lineWidth = 1.0;
             const longitudeSteps = [-0.65, -0.35, 0, 0.35, 0.65];
             
             longitudeSteps.forEach(scale => {
                 this.ctx.beginPath();
-                // Elipses verticais estreitas representando o volume esférico
                 this.ctx.ellipse(
                     faceX, faceY, 
                     radius * Math.abs(scale), radius, 
@@ -474,11 +709,9 @@ class Scanner3DEngine {
                 this.ctx.stroke();
             });
 
-            // Desenhar curvas de latitude tridimensional (Grelha Esférica Horizontal)
             const latitudeSteps = [-0.65, -0.3, 0, 0.3, 0.65];
             latitudeSteps.forEach(scale => {
                 const latY = faceY + scale * radius;
-                // O raio da linha horizontal encolhe conforme subimos/descemos na esfera
                 const latRadX = radius * Math.cos(Math.asin(scale));
 
                 this.ctx.beginPath();
@@ -491,13 +724,11 @@ class Scanner3DEngine {
                 this.ctx.stroke();
             });
 
-            // Ponto central de fixação do laser
             this.ctx.fillStyle = colorTeal;
             this.ctx.beginPath();
             this.ctx.arc(faceX, faceY, 3.5, 0, Math.PI * 2);
             this.ctx.fill();
 
-            // Etiqueta Identificadora Superior Estilizada
             this.ctx.fillStyle = "rgba(7, 8, 10, 0.9)";
             this.ctx.fillRect(faceX - 58, faceY - radius - 22, 116, 16);
             this.ctx.strokeStyle = colorTeal;
@@ -510,31 +741,42 @@ class Scanner3DEngine {
         }
 
         // ==========================================
-        // 4. RENDERIZAÇÃO DOS NÓS ARTICULARES DE CONTROLE (Landmarks)
+        // 5. RENDERIZAÇÃO DOS NÓS ARTICULARES DE CONTROLE (Landmarks)
         // ==========================================
         for (const [key, node] of Object.entries(this.nodes)) {
-            if (node.isFace) continue;
+            if (node.isFace || node.hidden) continue;
 
             const nx = node.x * w;
             const ny = node.y * h;
 
             const isDragging = this.draggedNode === key;
+            const isArm = key.includes("elbow") || key.includes("wrist");
+            const isBustOrNeck = key === "neck" || key === "chest";
 
-            // Halo difuso de acionamento
-            this.ctx.fillStyle = isDragging ? "rgba(0, 245, 212, 0.45)" : "rgba(217, 4, 41, 0.3)";
+            let baseColor = colorBurgundy;
+            let diffuseColor = "rgba(217, 4, 41, 0.3)";
+            
+            if (isArm) {
+                baseColor = colorTeal;
+                diffuseColor = "rgba(0, 245, 212, 0.3)";
+            } else if (isBustOrNeck) {
+                baseColor = "#ff9f43";
+                diffuseColor = "rgba(255, 159, 67, 0.3)";
+            }
+
+            this.ctx.fillStyle = isDragging ? "rgba(0, 245, 212, 0.45)" : diffuseColor;
             this.ctx.beginPath();
-            this.ctx.arc(nx, ny, 8.5, 0, Math.PI * 2);
+            this.ctx.arc(nx, ny, 8.0, 0, Math.PI * 2);
             this.ctx.fill();
 
-            // Núcleo brilhante
-            this.ctx.fillStyle = isDragging ? colorTeal : colorIce;
+            this.ctx.fillStyle = isDragging ? colorTeal : (isDragging ? colorIce : baseColor);
             this.ctx.beginPath();
-            this.ctx.arc(nx, ny, 4.0, 0, Math.PI * 2);
+            this.ctx.arc(nx, ny, 3.8, 0, Math.PI * 2);
             this.ctx.fill();
         }
 
         // ==========================================
-        // 5. LINHA DO LASER DE VARREDURA 3D
+        // 6. LINHA DO LASER DE VARREDURA 3D
         // ==========================================
         this.ctx.strokeStyle = "rgba(217, 4, 41, 0.55)";
         this.ctx.lineWidth = 1.8;
@@ -544,22 +786,22 @@ class Scanner3DEngine {
         this.ctx.moveTo(0, this.scanY);
         this.ctx.lineTo(w, this.scanY);
         this.ctx.stroke();
-        this.ctx.shadowBlur = 0; // Reset
+        this.ctx.shadowBlur = 0; 
 
         // ==========================================
-        // 6. HUD INTERNO COM MÉTRIAS DE BIOTIPO 3D
+        // 7. HUD INTERNO COM MÉTRIAS DE BIOTIPO 3D
         // ==========================================
         const metrics = this.analyzeBodyMetrics();
         if (metrics) {
             this.ctx.fillStyle = "rgba(7, 8, 10, 0.92)";
-            this.ctx.fillRect(15, 15, 210, 48);
-            this.ctx.strokeStyle = colorBurgundy;
+            this.ctx.fillRect(15, 15, 215, 48);
+            this.ctx.strokeStyle = this.isCroppedMode ? colorTeal : colorBurgundy;
             this.ctx.lineWidth = 1.5;
-            this.ctx.strokeRect(15, 15, 210, 48);
+            this.ctx.strokeRect(15, 15, 215, 48);
 
-            this.ctx.fillStyle = "rgba(217, 4, 41, 0.95)";
+            this.ctx.fillStyle = this.isCroppedMode ? colorTeal : "rgba(217, 4, 41, 0.95)";
             this.ctx.font = "bold 9px monospace";
-            this.ctx.fillText("VARREDURA VOLUMÉTRICA 3D", 22, 28);
+            this.ctx.fillText(this.isCroppedMode ? "VARREDURA MEIO CORPO LIVE" : "VARREDURA VOLUMÉTRICA 3D", 22, 28);
             
             this.ctx.fillStyle = colorIce;
             this.ctx.font = "bold 14px 'Space Grotesk', sans-serif";
@@ -592,104 +834,6 @@ class Scanner3DEngine {
     }
 
     /**
-     * Mapeia as coordenadas absolutas de pontos identificados pela IA (BlazePose)
-     * e atualiza os landmarks relativos do nosso motor de física local.
-     */
-    importBlazePoseKeypoints(keypoints, imageWidth, imageHeight) {
-        if (!keypoints || keypoints.length === 0) return;
-
-        const findKp = (nameOrIdx) => {
-            return keypoints.find(kp => kp.name === nameOrIdx || kp.index === nameOrIdx);
-        };
-
-        // Identificar pontos do BlazePose (Topology COCO/MediaPipe)
-        const kpNose = findKp("nose") || findKp(0);
-        const kpLShoulder = findKp("left_shoulder") || findKp(11);
-        const kpRShoulder = findKp("right_shoulder") || findKp(12);
-        const kpLHip = findKp("left_hip") || findKp(23);
-        const kpRHip = findKp("right_hip") || findKp(24);
-        const kpLKnee = findKp("left_knee") || findKp(25);
-        const kpRKnee = findKp("right_knee") || findKp(26);
-        const kpLAnkle = findKp("left_ankle") || findKp(27);
-        const kpRAnkle = findKp("right_ankle") || findKp(28);
-
-        const toRel = (kp) => {
-            if (!kp || (kp.score !== undefined && kp.score < 0.25)) return null;
-            return {
-                x: Math.min(1.0, Math.max(0.0, kp.x / imageWidth)),
-                y: Math.min(1.0, Math.max(0.0, kp.y / imageHeight))
-            };
-        };
-
-        const relNose = toRel(kpNose);
-        const relLSh = toRel(kpLShoulder);
-        const relRSh = toRel(kpRShoulder);
-        const relLHip = toRel(kpLHip);
-        const relRHip = toRel(kpRHip);
-        const relLKnee = toRel(kpLKnee);
-        const relRKnee = toRel(kpRKnee);
-        const relLAnkle = toRel(kpLAnkle);
-        const relRAnkle = toRel(kpRAnkle);
-
-        // Atualizar nós de visualização interativa
-        if (relNose) {
-            this.nodes.face.x = relNose.x;
-            // Posicionar anel ligeiramente acima do nariz (na testa/rosto)
-            this.nodes.face.y = Math.max(0.05, relNose.y - 0.03);
-        }
-        
-        if (relLSh) {
-            this.nodes.shoulderL.x = relLSh.x;
-            this.nodes.shoulderL.y = relLSh.y;
-        }
-        if (relRSh) {
-            this.nodes.shoulderR.x = relRSh.x;
-            this.nodes.shoulderR.y = relRSh.y;
-        }
-
-        if (relLHip) {
-            this.nodes.hipL.x = relLHip.x;
-            this.nodes.hipL.y = relLHip.y;
-        }
-        if (relRHip) {
-            this.nodes.hipR.x = relRHip.x;
-            this.nodes.hipR.y = relRHip.y;
-        }
-
-        // Interpolar Cintura (63% quadril, 37% ombro) para simular biotipo
-        if (relLSh && relLHip) {
-            this.nodes.waistL.x = relLHip.x * 0.63 + relLSh.x * 0.37;
-            this.nodes.waistL.y = relLHip.y * 0.63 + relLSh.y * 0.37;
-        }
-        if (relRSh && relRHip) {
-            this.nodes.waistR.x = relRHip.x * 0.63 + relRSh.x * 0.37;
-            this.nodes.waistR.y = relRHip.y * 0.63 + relRSh.y * 0.37;
-        }
-
-        if (relLKnee) {
-            this.nodes.kneeL.x = relLKnee.x;
-            this.nodes.kneeL.y = relLKnee.y;
-        }
-        if (relRKnee) {
-            this.nodes.kneeR.x = relRKnee.x;
-            this.nodes.kneeR.y = relRKnee.y;
-        }
-        if (relLAnkle) {
-            this.nodes.ankleL.x = relLAnkle.x;
-            this.nodes.ankleL.y = relLAnkle.y;
-        }
-        if (relRAnkle) {
-            this.nodes.ankleR.x = relRAnkle.x;
-            this.nodes.ankleR.y = relRAnkle.y;
-        }
-
-        console.log("[BlazePose Import] Pontos corporais mapeados com sucesso no motor 3D!");
-        this.redraw();
-        this.triggerUpdate();
-        this.syncNodesToSliders();
-    }
-
-    /**
      * Classificação Científica Baseada nos Nós de Calibração Arrastáveis
      */
     analyzeBodyMetrics() {
@@ -704,7 +848,6 @@ class Scanner3DEngine {
             return null;
         }
 
-        // Largura linear nos eixos 2D
         const shoulderWidth = Math.abs(rightShoulder.x - leftShoulder.x);
         const hipWidth = Math.abs(rightHip.x - leftHip.x);
         const waistWidth = Math.abs(rightWaist.x - leftWaist.x);
@@ -717,7 +860,6 @@ class Scanner3DEngine {
         let description = "";
         let lookTips = {};
 
-        // Regras visagistas matemáticas formais
         if (waistToHip <= 0.77 && waistToShoulder <= 0.77 && shoulderToHip >= 0.88 && shoulderToHip <= 1.12) {
             bodyType = "Ampulheta";
             description = "Silhueta com largura de ombros e quadril em perfeita proporção linear, com cintura extremamente definida. O foco principal é valorizar e acompanhar as curvas originais.";
