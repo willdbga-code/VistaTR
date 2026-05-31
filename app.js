@@ -565,7 +565,13 @@ function sampleSkinColor(faceNode) {
                 const isNotShadowOrHair = brightness > 35 && brightness < 242;
                 const isSkinRelation = r > g && g >= b - 10;
 
-                if (isNotShadowOrHair && isSkinRelation) {
+                // Descartar reflexos e pontos de luz (alta luminosidade e baixíssima saturação cromática)
+                const maxVal = Math.max(r, g, b);
+                const minVal = Math.min(r, g, b);
+                const saturation = maxVal - minVal;
+                const isFlashHighlight = brightness > 210 && saturation < 25;
+
+                if (isNotShadowOrHair && isSkinRelation && !isFlashHighlight) {
                     sumR += r;
                     sumG += g;
                     sumB += b;
@@ -697,7 +703,12 @@ function sampleBodySkinColor(node) {
             // Filtrar sombras escuras ou vestuário de alto brilho
             if (brightness > 30 && brightness < 246) {
                 // Pele humana biológica (vermelho > verde, e verde >= azul - 12)
-                if (r > g && g >= b - 12) {
+                const maxVal = Math.max(r, g, b);
+                const minVal = Math.min(r, g, b);
+                const saturation = maxVal - minVal;
+                const isFlashHighlight = brightness > 210 && saturation < 25;
+
+                if (r > g && g >= b - 12 && !isFlashHighlight) {
                     sumR += r;
                     sumG += g;
                     sumB += b;

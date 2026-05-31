@@ -224,6 +224,12 @@ class Scanner3DEngine {
         const kpLAnkle = findKp("left_ankle") || findKp(27);
         const kpRAnkle = findKp("right_ankle") || findKp(28);
 
+        // Pontos de Cabeça adicionais para arestas de rosto (Orelhas e Olhos)
+        const kpLEar = findKp("left_ear") || findKp(7);
+        const kpREar = findKp("right_ear") || findKp(8);
+        const kpLEye = findKp("left_eye") || findKp(2);
+        const kpREye = findKp("right_eye") || findKp(5);
+
         const toRel = (kp) => {
             if (!kp || (kp.score !== undefined && kp.score < 0.25)) return null;
             return {
@@ -248,17 +254,40 @@ class Scanner3DEngine {
         const relLAnkle = toRel(kpLAnkle);
         const relRAnkle = toRel(kpRAnkle);
 
+        const relLEar = toRel(kpLEar);
+        const relREar = toRel(kpREar);
+        const relLEye = toRel(kpLEye);
+        const relREye = toRel(kpREye);
+
         // RESET DOS ESTADOS DE HIDDEN
         for (const node of Object.values(this.nodes)) {
             if (node.isLeg) node.hidden = false;
         }
         this.isCroppedMode = false;
 
-        // 1. Mapear Rosto (Face Ring)
-        if (relNose) {
-            this.nodes.face.x = relNose.x;
-            this.nodes.face.y = Math.max(0.05, relNose.y - 0.03);
+        // 1. Mapear Rosto (Face Ring & Arestas Dinâmicas)
+        let computedFaceCenterX = relNose ? relNose.x : 0.50;
+        let computedFaceCenterY = relNose ? Math.max(0.05, relNose.y - 0.03) : 0.17;
+        let faceWidth = 0.13;
+
+        if (relLEar && relREar) {
+            computedFaceCenterX = (relLEar.x + relREar.x) / 2;
+            faceWidth = Math.abs(relLEar.x - relREar.x);
+            computedFaceCenterY = relNose ? relNose.y - 0.01 : (relLEar.y + relREar.y) / 2;
+            console.log("[Ancoragem Rosto] Arestas laterais do rosto obtidas via orelhas. Largura:", faceWidth.toFixed(3));
+        } else if (relLEye && relREye) {
+            computedFaceCenterX = (relLEye.x + relREye.x) / 2;
+            const eyeDist = Math.abs(relLEye.x - relREye.x);
+            faceWidth = eyeDist * 1.85;
+            computedFaceCenterY = relNose ? relNose.y - 0.01 : (relLEye.y + relREye.y) / 2;
+            console.log("[Ancoragem Rosto] Arestas estimadas via distância pupilar. Largura:", faceWidth.toFixed(3));
         }
+
+        this.nodes.face.x = computedFaceCenterX;
+        this.nodes.face.y = computedFaceCenterY;
+        
+        const dynamicRadius = Math.min(0.08, Math.max(0.038, faceWidth * 0.42));
+        this.nodes.face.radiusRel = dynamicRadius;
         
         // 2. Mapear Ombros com Expansão Lateral de 18% (Deltoides Externos)
         if (relLSh && relRSh) {
@@ -272,8 +301,15 @@ class Scanner3DEngine {
             if (relRSh) { this.nodes.shoulderR.x = relRSh.x; this.nodes.shoulderR.y = relRSh.y; }
         }
 
-        // 3. Mapear Pescoço (Neck) - Interpolado a meio caminho entre Rosto e Ombros
-        if (relNose && relLSh && relRSh) {
+        // 3. Mapear Pescoço (Neck) - Posicionado dinamicamente sob o queixo do rosto
+        if (this.nodes.face && relLSh && relRSh) {
+            const shCenterX = (relLSh.x + relRSh.x) / 2;
+            this.nodes.neck.x = shCenterX;
+            const chinY = this.nodes.face.y + this.nodes.face.radiusRel;
+            const shCenterY = (relLSh.y + relRSh.y) / 2;
+            this.nodes.neck.y = chinY + (shCenterY - chinY) * 0.42;
+            console.log("[Ancoragem Pescoço] Pescoço posicionado dinamicamente sob o queixo em y =", this.nodes.neck.y.toFixed(2));
+        } else if (relNose && relLSh && relRSh) {
             const shCenterY = (relLSh.y + relRSh.y) / 2;
             const shCenterX = (relLSh.x + relRSh.x) / 2;
             this.nodes.neck.x = shCenterX;
