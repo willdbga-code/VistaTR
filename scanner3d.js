@@ -183,14 +183,16 @@ class Scanner3DEngine {
             this.nodes.face.y = Math.max(0.05, relNose.y - 0.03);
         }
         
-        // 2. Mapear Ombros
-        if (relLSh) {
-            this.nodes.shoulderL.x = relLSh.x;
+        // 2. Mapear Ombros com Expansão Lateral de 6% (Deltoides)
+        if (relLSh && relRSh) {
+            const shCenterX = (relLSh.x + relRSh.x) / 2;
+            this.nodes.shoulderL.x = shCenterX - (shCenterX - relLSh.x) * 1.06;
+            this.nodes.shoulderR.x = shCenterX + (relRSh.x - shCenterX) * 1.06;
             this.nodes.shoulderL.y = relLSh.y;
-        }
-        if (relRSh) {
-            this.nodes.shoulderR.x = relRSh.x;
             this.nodes.shoulderR.y = relRSh.y;
+        } else {
+            if (relLSh) { this.nodes.shoulderL.x = relLSh.x; this.nodes.shoulderL.y = relLSh.y; }
+            if (relRSh) { this.nodes.shoulderR.x = relRSh.x; this.nodes.shoulderR.y = relRSh.y; }
         }
 
         // 3. Mapear Pescoço (Neck) - Interpolado a meio caminho entre Rosto e Ombros
@@ -201,24 +203,55 @@ class Scanner3DEngine {
             this.nodes.neck.y = relNose.y * 0.4 + shCenterY * 0.6;
         }
 
-        // 4. Mapear Cintura e Quadris
-        if (relLHip) {
-            this.nodes.hipL.x = relLHip.x;
-            this.nodes.hipL.y = relLHip.y;
+        // Mapear Braços primeiro para permitir ancorar a cintura no nível dos cotovelos
+        if (relLElbow) {
+            this.nodes.elbowL.x = relLElbow.x;
+            this.nodes.elbowL.y = relLElbow.y;
         }
-        if (relRHip) {
-            this.nodes.hipR.x = relRHip.x;
-            this.nodes.hipR.y = relRHip.y;
+        if (relRElbow) {
+            this.nodes.elbowR.x = relRElbow.x;
+            this.nodes.elbowR.y = relRElbow.y;
         }
 
-        // Interpolar Cintura (63% quadril, 37% ombro) para simular biotipo
-        if (relLSh && relLHip) {
-            this.nodes.waistL.x = relLHip.x * 0.63 + relLSh.x * 0.37;
-            this.nodes.waistL.y = relLHip.y * 0.63 + relLSh.y * 0.37;
+        // 4. Mapear Quadris com Expansão Lateral de 6% (Bordas Pélvicas)
+        if (relLHip && relRHip) {
+            const hipCenterX = (relLHip.x + relRHip.x) / 2;
+            this.nodes.hipL.x = hipCenterX - (hipCenterX - relLHip.x) * 1.06;
+            this.nodes.hipR.x = hipCenterX + (relRHip.x - hipCenterX) * 1.06;
+            this.nodes.hipL.y = relLHip.y;
+            this.nodes.hipR.y = relRHip.y;
+        } else {
+            if (relLHip) { this.nodes.hipL.x = relLHip.x; this.nodes.hipL.y = relLHip.y; }
+            if (relRHip) { this.nodes.hipR.x = relRHip.x; this.nodes.hipR.y = relRHip.y; }
         }
-        if (relRSh && relRHip) {
-            this.nodes.waistR.x = relRHip.x * 0.63 + relRSh.x * 0.37;
-            this.nodes.waistR.y = relRHip.y * 0.63 + relRSh.y * 0.37;
+
+        // 5. Mapear Cintura (Âncora baseada na altura dos cotovelos em repouso)
+        let waistY = null;
+        if (relLElbow && relRElbow) {
+            const avgElbowY = (relLElbow.y + relRElbow.y) / 2;
+            const shY = (this.nodes.shoulderL.y + this.nodes.shoulderR.y) / 2;
+            const hipY = (this.nodes.hipL.y + this.nodes.hipR.y) / 2;
+            
+            // Se os cotovelos estiverem em faixa anatômica normal (abaixo do ombro e acima do quadril)
+            if (avgElbowY > shY + 0.04 && avgElbowY < hipY - 0.02) {
+                waistY = avgElbowY;
+                console.log("[Ancoragem] Cintura natural ancorada horizontalmente com os cotovelos: y =", waistY.toFixed(2));
+            }
+        }
+
+        // Interpolar Cintura (63% quadril, 37% ombro)
+        if (this.nodes.shoulderL && this.nodes.hipL) {
+            const shL = this.nodes.shoulderL;
+            const shR = this.nodes.shoulderR;
+            const hipL = this.nodes.hipL;
+            const hipR = this.nodes.hipR;
+
+            this.nodes.waistL.x = hipL.x * 0.63 + shL.x * 0.37;
+            this.nodes.waistR.x = hipR.x * 0.63 + shR.x * 0.37;
+
+            const defaultY = hipL.y * 0.61 + shL.y * 0.39;
+            this.nodes.waistL.y = waistY || defaultY;
+            this.nodes.waistR.y = waistY || defaultY;
         }
 
         // 5. Mapear Peito/Busto (Chest) - Centralizado e ligeiramente abaixo do ombro
@@ -758,6 +791,54 @@ class Scanner3DEngine {
             this.ctx.fillStyle = colorIce;
             this.ctx.font = "bold 8px monospace";
             this.ctx.fillText("ESCANEADOR 3D FACIAL", faceX - 52, faceY - radius - 11);
+        }
+
+        // ==========================================
+        // 4.5. RETÍCULOS DE SENSORES DE PELE CORPORAL (Luminância)
+        // ==========================================
+        const drawSensorBox = (x, y, label, size = 10) => {
+            this.ctx.strokeStyle = "rgba(0, 245, 212, 0.4)";
+            this.ctx.lineWidth = 1;
+            this.ctx.setLineDash([2, 2]);
+            this.ctx.strokeRect(x - size/2, y - size/2, size, size);
+            this.ctx.setLineDash([]);
+            
+            // Desenhar os cantos em L neon
+            this.ctx.strokeStyle = colorTeal;
+            this.ctx.lineWidth = 1.2;
+            const len = 3;
+            // Canto superior esquerdo
+            this.ctx.beginPath(); this.ctx.moveTo(x - size/2 + len, y - size/2); this.ctx.lineTo(x - size/2, y - size/2); this.ctx.lineTo(x - size/2, y - size/2 + len); this.ctx.stroke();
+            // Canto superior direito
+            this.ctx.beginPath(); this.ctx.moveTo(x + size/2 - len, y - size/2); this.ctx.lineTo(x + size/2, y - size/2); this.ctx.lineTo(x + size/2, y - size/2 + len); this.ctx.stroke();
+            // Canto inferior esquerdo
+            this.ctx.beginPath(); this.ctx.moveTo(x - size/2 + len, y + size/2); this.ctx.lineTo(x - size/2, y + size/2); this.ctx.lineTo(x - size/2, y + size/2 - len); this.ctx.stroke();
+            // Canto inferior direito
+            this.ctx.beginPath(); this.ctx.moveTo(x + size/2 - len, y + size/2); this.ctx.lineTo(x + size/2, y + size/2); this.ctx.lineTo(x + size/2, y + size/2 - len); this.ctx.stroke();
+
+            // Etiqueta minúscula
+            this.ctx.fillStyle = "rgba(0, 245, 212, 0.75)";
+            this.ctx.font = "bold 6px monospace";
+            this.ctx.fillText(label, x + size/2 + 4, y + 2);
+        };
+
+        // Pescoço
+        if (nNeck) {
+            drawSensorBox(nNeck.x * w, nNeck.y * h, "SENS. PESCOÇO");
+        }
+        // Peito
+        if (nChest) {
+            drawSensorBox(nChest.x * w, nChest.y * h, "SENS. COLO");
+        }
+        // Braço Esquerdo
+        const nElbowL = this.nodes.elbowL;
+        if (nElbowL && !nElbowL.hidden) {
+            drawSensorBox(nElbowL.x * w, nElbowL.y * h - 15, "SENS. BRAÇO ESQ");
+        }
+        // Braço Direito
+        const nElbowR = this.nodes.elbowR;
+        if (nElbowR && !nElbowR.hidden) {
+            drawSensorBox(nElbowR.x * w, nElbowR.y * h - 15, "SENS. BRAÇO DIR");
         }
 
         // ==========================================

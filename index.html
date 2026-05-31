@@ -182,6 +182,31 @@
                         </div>
 
                         <div class="result-card">
+                            <div class="result-badge" style="display: flex; justify-content: space-between; width: 100%;">
+                                <span>🧬 Coerência de Subtom (Anti-Maquiagem)</span>
+                                <span class="status-label" id="label-makeup-status">-</span>
+                            </div>
+                            <div style="display: flex; align-items: center; justify-content: space-between; margin: 10px 0 5px 0;">
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <div class="color-hex-badge" id="color-face-hex" style="width: 14px; height: 14px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.2);"></div>
+                                    <span style="font-size: 10px; color: var(--text-muted);">Pele Facial</span>
+                                </div>
+                                <div style="font-size: 18px; font-weight: 800; color: var(--text-main);" id="val-makeup-fidelity">0%</div>
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <span style="font-size: 10px; color: var(--text-muted);">Pele Corporal</span>
+                                    <div class="color-hex-badge" id="color-body-hex" style="width: 14px; height: 14px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.2);"></div>
+                                </div>
+                            </div>
+                            
+                            <!-- Barra de Progresso de Coerência -->
+                            <div class="makeup-progress-container" style="width: 100%; height: 6px; background-color: var(--bg-dark); border-radius: 3px; overflow: hidden; margin-bottom: 10px; border: 1px solid rgba(255,255,255,0.05);">
+                                <div class="makeup-progress-bar" id="makeup-fidelity-bar" style="width: 0%; height: 100%; transition: width 0.5s ease-out;"></div>
+                            </div>
+                            
+                            <div class="result-description" id="desc-makeup-fidelity" style="font-size: 11px; line-height: 1.4; color: var(--text-muted);">-</div>
+                        </div>
+
+                        <div class="result-card">
                             <div class="result-badge">📐 Arquitetura Corporal Antropométrica</div>
                             <div class="result-value" id="val-body">-</div>
                             <div class="result-description" id="desc-body">-</div>

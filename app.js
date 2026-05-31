@@ -470,23 +470,47 @@ function onManualTune() {
 function handleInteractionUpdate(metrics, nodes) {
     if (!uploadedImage) return;
 
-    // 1. Amostragem multizona inteligente da cor da pele na região do Face Ring
+    // 1. Amostragem multizona inteligente da cor da pele do Rosto
     const faceNode = nodes.face;
-    const skinRgb = sampleSkinColor(faceNode);
+    const faceSkinRgb = sampleSkinColor(faceNode);
 
-    // 2. Amostragem dos sub-nós de cabelo e olhos para contraste
+    // 2. Amostragem dos Sensores de Pele Corporal (Pescoço, Colo e Braços)
+    const neckRgb = sampleBodySkinColor(nodes.neck);
+    const chestRgb = sampleBodySkinColor(nodes.chest);
+    
+    const armLRgb = sampleBodySkinColor(nodes.elbowL);
+    const armRRgb = sampleBodySkinColor(nodes.elbowR);
+    const armRgb = {
+        r: Math.round((armLRgb.r + armRRgb.r) / 2),
+        g: Math.round((armLRgb.g + armRRgb.g) / 2),
+        b: Math.round((armLRgb.b + armRRgb.b) / 2)
+    };
+
+    // 3. Fusão Cromática Inteligente (Anti-Maquiagem/Efeito Máscara)
+    const mergedSkinRgb = VisagismoEngine.mergeGlobalSkinTones(faceSkinRgb, neckRgb, chestRgb, armRgb);
+
+    // 4. Amostragem dos sub-nós de cabelo e olhos para contraste
     const hairRgb = sampleNodeColor(nodes.hair, 6);
     const eyeRgb = sampleNodeColor(nodes.eye, 4);
 
-    // 3. Calcular Contraste Pessoal
-    const personalContrast = VisagismoEngine.calculatePersonalContrast(skinRgb, hairRgb, eyeRgb);
+    // 5. Calcular Contraste Pessoal (baseado no tom biológico fundido)
+    const personalContrast = VisagismoEngine.calculatePersonalContrast(mergedSkinRgb, hairRgb, eyeRgb);
     updateContrastUI(personalContrast);
 
-    // 4. Calcular a classificação das 12 estações cromáticas usando o contraste calculado
-    activeColorAnalysis = VisagismoEngine.analyzeSeasonalColor(skinRgb.r, skinRgb.g, skinRgb.b, personalContrast.label);
+    // 6. Calcular Índice de Discrepância / Fidelidade de Maquiagem
+    const bodyRgb = {
+        r: Math.round((neckRgb.r + chestRgb.r + armRgb.r) / 3),
+        g: Math.round((neckRgb.g + chestRgb.g + armRgb.g) / 3),
+        b: Math.round((neckRgb.b + chestRgb.b + armRgb.b) / 3)
+    };
+    const makeupBias = VisagismoEngine.calculateMakeupBias(faceSkinRgb, bodyRgb);
+    updateMakeupFidelityUI(makeupBias, faceSkinRgb, bodyRgb);
+
+    // 7. Calcular a classificação das 12 estações cromáticas usando o tom de pele biológico calibrado
+    activeColorAnalysis = VisagismoEngine.analyzeSeasonalColor(mergedSkinRgb.r, mergedSkinRgb.g, mergedSkinRgb.b, personalContrast.label);
     currentBodyMetrics = metrics;
 
-    // 5. Atualizar a UI com todos os dados calculados
+    // 8. Atualizar a UI com todos os dados calculados
     updateResultsUI();
 }
 
@@ -641,6 +665,97 @@ function updateContrastUI(contrast) {
     }
     if (descEl) {
         descEl.innerText = contrast.description;
+    }
+}
+
+/**
+ * Amostra tons de pele corporais aplicando filtro anti-sombras e anti-tecidos
+ */
+function sampleBodySkinColor(node) {
+    const imgCanvas = document.getElementById("image-canvas");
+    if (!imgCanvas) return { r: 210, g: 175, b: 155 };
+    const ctx = imgCanvas.getContext("2d");
+    
+    const px = Math.floor(node.x * imgCanvas.width);
+    const py = Math.floor(node.y * imgCanvas.height);
+    
+    const sampleSize = 8;
+    const startX = Math.max(0, px - 4);
+    const startY = Math.max(0, py - 4);
+    
+    const pixelData = ctx.getImageData(startX, startY, sampleSize, sampleSize).data;
+    let sumR = 0, sumG = 0, sumB = 0, count = 0;
+    
+    for (let i = 0; i < pixelData.length; i += 4) {
+        const r = pixelData[i];
+        const g = pixelData[i+1];
+        const b = pixelData[i+2];
+        const a = pixelData[i+3];
+        
+        if (a > 200) {
+            const brightness = (r + g + b) / 3;
+            // Filtrar sombras escuras ou vestuário de alto brilho
+            if (brightness > 30 && brightness < 246) {
+                // Pele humana biológica (vermelho > verde, e verde >= azul - 12)
+                if (r > g && g >= b - 12) {
+                    sumR += r;
+                    sumG += g;
+                    sumB += b;
+                    count++;
+                }
+            }
+        }
+    }
+    
+    if (count > 2) {
+        return { r: Math.round(sumR / count), g: Math.round(sumG / count), b: Math.round(sumB / count) };
+    } else {
+        // Fallback para amostragem central sutil
+        return sampleNodeColor(node, 4);
+    }
+}
+
+/**
+ * Atualiza o painel visual de fidelidade de maquiagem vs pele biológica na UI
+ */
+function updateMakeupFidelityUI(makeupBias, faceRgb, bodyRgb) {
+    const bar = document.getElementById("makeup-fidelity-bar");
+    const valText = document.getElementById("val-makeup-fidelity");
+    const labelStatus = document.getElementById("label-makeup-status");
+    const descText = document.getElementById("desc-makeup-fidelity");
+    
+    const faceHexEl = document.getElementById("color-face-hex");
+    const bodyHexEl = document.getElementById("color-body-hex");
+    
+    if (bar) {
+        bar.style.width = `${makeupBias.fidelity}%`;
+        
+        // Colorir de acordo com o status
+        if (makeupBias.fidelity < 50) {
+            bar.className = "makeup-progress-bar critical";
+        } else if (makeupBias.fidelity < 82) {
+            bar.className = "makeup-progress-bar moderate";
+        } else {
+            bar.className = "makeup-progress-bar excellent";
+        }
+    }
+    
+    if (valText) valText.innerText = `${makeupBias.fidelity}%`;
+    if (labelStatus) {
+        labelStatus.innerText = makeupBias.status;
+        labelStatus.className = `status-label ${makeupBias.status.toLowerCase()}`;
+    }
+    if (descText) descText.innerText = makeupBias.message;
+    
+    if (faceHexEl) {
+        const hex = "#" + ((1 << 24) + (faceRgb.r << 16) + (faceRgb.g << 8) + faceRgb.b).toString(16).slice(1);
+        faceHexEl.style.backgroundColor = hex;
+        faceHexEl.title = `Rosto: ${hex.toUpperCase()}`;
+    }
+    if (bodyHexEl) {
+        const hex = "#" + ((1 << 24) + (bodyRgb.r << 16) + (bodyRgb.g << 8) + bodyRgb.b).toString(16).slice(1);
+        bodyHexEl.style.backgroundColor = hex;
+        bodyHexEl.title = `Corpo: ${hex.toUpperCase()}`;
     }
 }
 

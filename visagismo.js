@@ -508,6 +508,86 @@ class VisagismoEngine {
 
         return details;
     }
+
+    /**
+     * Mescla as cores de pele de diferentes zonas corporais, filtrando e reduzindo 
+     * o viés de maquiagem facial excessiva com peso inteligente equilibrado.
+     */
+    static mergeGlobalSkinTones(faceRgb, neckRgb, chestRgb, armRgb) {
+        const getY = (rgb) => 0.299 * rgb.r + 0.587 * rgb.g + 0.114 * rgb.b;
+        
+        const yFace = getY(faceRgb);
+        const yNeck = getY(neckRgb);
+        const yChest = getY(chestRgb);
+        const yArm = getY(armRgb);
+        
+        // Média do corpo
+        let bodyCount = 0;
+        let sumR = 0, sumG = 0, sumB = 0;
+        
+        if (yNeck > 10) { sumR += neckRgb.r; sumG += neckRgb.g; sumB += neckRgb.b; bodyCount++; }
+        if (yChest > 10) { sumR += chestRgb.r; sumG += chestRgb.g; sumB += chestRgb.b; bodyCount++; }
+        if (yArm > 10) { sumR += armRgb.r; sumG += armRgb.g; sumB += armRgb.b; bodyCount++; }
+        
+        if (bodyCount === 0) return faceRgb;
+        
+        const avgBodyR = sumR / bodyCount;
+        const avgBodyG = sumG / bodyCount;
+        const avgBodyB = sumB / bodyCount;
+        const yBody = (0.299 * avgBodyR) + (0.587 * avgBodyG) + (0.114 * avgBodyB);
+        
+        // Se a discrepância entre o rosto e o corpo for acentuada (> 25 unidades de brilho)
+        // suspeitamos de base/maquiagem facial pesada. Reduzimos o peso do rosto de 50% para 22%.
+        const discrepancy = Math.abs(yFace - yBody);
+        
+        let faceWeight = 0.50;
+        let bodyWeight = 0.50;
+        
+        if (discrepancy > 25) {
+            faceWeight = 0.22;
+            bodyWeight = 0.78;
+            console.log(`[Anti-Makeup Filter] Rosto discrepante do corpo (diff=${discrepancy.toFixed(1)}). Reduzindo peso facial para ${faceWeight * 100}% e priorizando corpo.`);
+        }
+        
+        return {
+            r: Math.round(faceRgb.r * faceWeight + avgBodyR * bodyWeight),
+            g: Math.round(faceRgb.g * faceWeight + avgBodyG * bodyWeight),
+            b: Math.round(faceRgb.b * faceWeight + avgBodyB * bodyWeight)
+        };
+    }
+
+    /**
+     * Calcula o Índice de Discrepância / Fidelidade de Maquiagem (Makeup Bias)
+     * Comparando a cor facial com a cor biológica média do corpo.
+     * Retorna a porcentagem de fidelidade e uma descrição visagista diagnóstica.
+     */
+    static calculateMakeupBias(faceRgb, bodyRgb) {
+        const diffR = Math.abs(faceRgb.r - bodyRgb.r);
+        const diffG = Math.abs(faceRgb.g - bodyRgb.g);
+        const diffB = Math.abs(faceRgb.b - bodyRgb.b);
+        
+        const avgDiff = (diffR + diffG + diffB) / 3;
+        
+        // Erro de 50 ou mais representa 0% de fidelidade (tons completamente diferentes)
+        const fidelity = Math.max(0, Math.min(100, Math.round(100 - (avgDiff * 2))));
+        
+        let status = "Excelente";
+        let message = "Subtom facial e corporal em harmonia perfeita. Sem efeito máscara.";
+        
+        if (fidelity < 50) {
+            status = "Crítica";
+            message = "Alta discrepância! Rosto e corpo com tons incompatíveis (Efeito Máscara). Ajuste a base.";
+        } else if (fidelity < 82) {
+            status = "Moderada";
+            message = "Discrepância leve. Rosto ligeiramente mais claro ou saturado que o colo. Base aceitável.";
+        }
+        
+        return {
+            fidelity,
+            status,
+            message
+        };
+    }
 }
 
 // Exportar globalmente

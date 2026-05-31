@@ -782,4 +782,67 @@ header {
     border-color: #ffffff !important;
 }
 
+/* 🧬 Estilos da Barra de Coerência de Subtom & Anti-Maquiagem */
+.makeup-progress-bar {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.6s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+.makeup-progress-bar.excellent {
+    background: linear-gradient(90deg, #00b4d8, var(--accent));
+    box-shadow: 0 0 8px var(--accent-glow);
+}
+
+.makeup-progress-bar.moderate {
+    background: linear-gradient(90deg, #ffd166, #ff9f43);
+    box-shadow: 0 0 8px rgba(255, 159, 67, 0.3);
+}
+
+.makeup-progress-bar.critical {
+    background: linear-gradient(90deg, var(--burgundy), var(--primary));
+    box-shadow: 0 0 8px var(--primary-glow);
+}
+
+/* Crachás de Status de Maquiagem */
+.status-label {
+    font-size: 8px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    display: inline-block;
+    vertical-align: middle;
+}
+
+.status-label.excelente {
+    color: var(--accent) !important;
+    background-color: rgba(0, 245, 212, 0.08) !important;
+    border: 1px solid rgba(0, 245, 212, 0.2) !important;
+}
+
+.status-label.moderada {
+    color: #ff9f43 !important;
+    background-color: rgba(255, 159, 67, 0.08) !important;
+    border: 1px solid rgba(255, 159, 67, 0.2) !important;
+}
+
+.status-label.crítica, .status-label.critica {
+    color: var(--primary-hover) !important;
+    background-color: rgba(217, 4, 41, 0.08) !important;
+    border: 1px solid rgba(217, 4, 41, 0.2) !important;
+}
+
+.color-hex-badge {
+    box-shadow: 0 0 4px rgba(0,0,0,0.4);
+    cursor: help;
+    transition: var(--transition-smooth);
+}
+
+.color-hex-badge:hover {
+    transform: scale(1.2);
+    border-color: #ffffff !important;
+}
+
 
