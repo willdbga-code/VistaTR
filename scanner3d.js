@@ -392,22 +392,81 @@ class Scanner3DEngine {
                     }
                 }
 
-                // C. Escanear Cintura
+                // C. Escanear Cintura (Varredura de Dentro para Fora para evitar braços)
                 if (this.nodes.waistL && this.nodes.waistR) {
                     const waistY = (this.nodes.waistL.y + this.nodes.waistR.y) / 2;
                     const waistCenterX = (this.nodes.waistL.x + this.nodes.waistR.x) / 2;
 
                     const waistLIsOnLeft = this.nodes.waistL.x < waistCenterX;
-                    const edgeL = this.scanSilhouetteEdge(imgCtx, w, h, waistY, waistCenterX, waistLIsOnLeft, this.nodes.waistL.x);
-                    const edgeR = this.scanSilhouetteEdge(imgCtx, w, h, waistY, waistCenterX, !waistLIsOnLeft, this.nodes.waistR.x);
+
+                    let leftElbowX = 0.25;
+                    let rightElbowX = 0.75;
+                    if (this.nodes.elbowL && this.nodes.elbowR) {
+                        leftElbowX = Math.min(this.nodes.elbowL.x, this.nodes.elbowR.x);
+                        rightElbowX = Math.max(this.nodes.elbowL.x, this.nodes.elbowR.x);
+                    }
+
+                    const scanWaistOutward = (searchLeft, elbowX) => {
+                        try {
+                            const y = Math.floor(waistY * h);
+                            const startX = Math.floor(waistCenterX * w);
+                            const limitX = Math.floor((searchLeft ? elbowX + 0.025 : elbowX - 0.025) * w);
+
+                            // Amostrar fundo local no cotovelo para saber a cor da parede
+                            const bgX = Math.floor((searchLeft ? elbowX - 0.04 : elbowX + 0.04) * w);
+                            const bgPixel = imgCtx.getImageData(Math.min(w-1, Math.max(0, bgX)), y, 1, 1).data;
+                            const bgR = bgPixel[0];
+                            const bgG = bgPixel[1];
+                            const bgB = bgPixel[2];
+
+                            const step = searchLeft ? -1 : 1;
+
+                            // Obter linha de pixels
+                            const rowData = imgCtx.getImageData(0, y, w, 1).data;
+                            const getPixel = (px) => {
+                                const idx = px * 4;
+                                return [rowData[idx], rowData[idx + 1], rowData[idx + 2]];
+                            };
+
+                            let detectedX = null;
+                            let consecutiveHits = 0;
+
+                            // Varrer do centro para fora
+                            for (let x = startX; searchLeft ? x >= limitX : x <= limitX; x += step) {
+                                const [r, g, b] = getPixel(x);
+                                const dist = Math.sqrt((r - bgR) ** 2 + (g - bgG) ** 2 + (b - bgB) ** 2);
+
+                                // Se encontrarmos o fundo (distância pequena para a parede clara)
+                                if (dist < 28) {
+                                    consecutiveHits++;
+                                    if (consecutiveHits >= 3) {
+                                        detectedX = x - step * 2;
+                                        break;
+                                    }
+                                } else {
+                                    consecutiveHits = 0;
+                                }
+                            }
+
+                            if (detectedX !== null) {
+                                return detectedX / w;
+                            }
+                        } catch (e) {
+                            console.warn("[Waist Scan] Falha ao escanear cintura lateral:", e);
+                        }
+                        return null;
+                    };
+
+                    const edgeL = scanWaistOutward(waistLIsOnLeft, waistLIsOnLeft ? leftElbowX : rightElbowX);
+                    const edgeR = scanWaistOutward(!waistLIsOnLeft, !waistLIsOnLeft ? leftElbowX : rightElbowX);
 
                     if (edgeL !== null) {
                         this.nodes.waistL.x = edgeL;
-                        console.log("[Silhouette Scan] Cintura Esquerda ajustada para borda física:", edgeL.toFixed(3));
+                        console.log("[Silhouette Scan] Cintura Esquerda ajustada de dentro para fora:", edgeL.toFixed(3));
                     }
                     if (edgeR !== null) {
                         this.nodes.waistR.x = edgeR;
-                        console.log("[Silhouette Scan] Cintura Direita ajustada para borda física:", edgeR.toFixed(3));
+                        console.log("[Silhouette Scan] Cintura Direita ajustada de dentro para fora:", edgeR.toFixed(3));
                     }
                 }
 
