@@ -995,15 +995,38 @@ class Scanner3DEngine {
             const faceY = faceNode.y * h;
             const radius = faceNode.radiusRel * w;
 
+            // Halo luminoso externo do rosto (Estilo holograma neon)
             this.ctx.strokeStyle = colorTeal;
             this.ctx.lineWidth = 2.5;
-            this.ctx.shadowBlur = 12;
+            this.ctx.shadowBlur = 14;
             this.ctx.shadowColor = colorTeal;
             this.ctx.beginPath();
             this.ctx.arc(faceX, faceY, radius, 0, Math.PI * 2);
             this.ctx.stroke();
             this.ctx.shadowBlur = 0; 
 
+            // Mira Retículo Interna Dashed (Crosshair de alta precisão)
+            this.ctx.setLineDash([2, 4]);
+            this.ctx.strokeStyle = "rgba(0, 245, 212, 0.45)";
+            this.ctx.lineWidth = 1.0;
+            this.ctx.beginPath();
+            // Eixo Horizontal
+            this.ctx.moveTo(faceX - radius * 0.95, faceY);
+            this.ctx.lineTo(faceX + radius * 0.95, faceY);
+            // Eixo Vertical
+            this.ctx.moveTo(faceX, faceY - radius * 0.95);
+            this.ctx.lineTo(faceX, faceY + radius * 0.95);
+            this.ctx.stroke();
+
+            // Círculo concêntrico interno pontilhado (Amostragem de bochechas)
+            this.ctx.setLineDash([1, 4]);
+            this.ctx.strokeStyle = "rgba(0, 245, 212, 0.7)";
+            this.ctx.beginPath();
+            this.ctx.arc(faceX, faceY, radius * 0.6, 0, Math.PI * 2);
+            this.ctx.stroke();
+            this.ctx.setLineDash([]); // Reset das linhas pontilhadas
+
+            // Linhas longitudinais 3D (elipses verticais de curvatura craniana)
             this.ctx.strokeStyle = "rgba(0, 245, 212, 0.4)";
             this.ctx.lineWidth = 1.0;
             const longitudeSteps = [-0.65, -0.35, 0, 0.35, 0.65];
@@ -1019,6 +1042,7 @@ class Scanner3DEngine {
                 this.ctx.stroke();
             });
 
+            // Linhas latitudinais 3D (elipses horizontais)
             const latitudeSteps = [-0.65, -0.3, 0, 0.3, 0.65];
             latitudeSteps.forEach(scale => {
                 const latY = faceY + scale * radius;
@@ -1034,11 +1058,13 @@ class Scanner3DEngine {
                 this.ctx.stroke();
             });
 
+            // Ponto central holográfico
             this.ctx.fillStyle = colorTeal;
             this.ctx.beginPath();
             this.ctx.arc(faceX, faceY, 3.5, 0, Math.PI * 2);
             this.ctx.fill();
 
+            // Etiqueta Superior Premium
             this.ctx.fillStyle = "rgba(7, 8, 10, 0.9)";
             this.ctx.fillRect(faceX - 58, faceY - radius - 22, 116, 16);
             this.ctx.strokeStyle = colorTeal;
