@@ -474,12 +474,12 @@ function handleInteractionUpdate(metrics, nodes) {
     const faceNode = nodes.face;
     const faceSkinRgb = sampleSkinColor(faceNode);
 
-    // 2. Amostragem dos Sensores de Pele Corporal (Pescoço, Colo e Braços)
-    const neckRgb = sampleBodySkinColor(nodes.neck);
-    const chestRgb = sampleBodySkinColor(nodes.chest);
+    // 2. Amostragem dos Sensores de Pele Corporal (Pescoço, Colo e Braços) com fallback dinâmico para a pele do rosto em caso de falha
+    const neckRgb = sampleBodySkinColor(nodes.neck) || faceSkinRgb;
+    const chestRgb = sampleBodySkinColor(nodes.chest) || faceSkinRgb;
     
-    const armLRgb = sampleBodySkinColor(nodes.elbowL);
-    const armRRgb = sampleBodySkinColor(nodes.elbowR);
+    const armLRgb = sampleBodySkinColor(nodes.elbowL) || faceSkinRgb;
+    const armRRgb = sampleBodySkinColor(nodes.elbowR) || faceSkinRgb;
     const armRgb = {
         r: Math.round((armLRgb.r + armRRgb.r) / 2),
         g: Math.round((armLRgb.g + armRRgb.g) / 2),
@@ -525,14 +525,16 @@ function sampleSkinColor(faceNode) {
     const faceY = Math.floor(faceNode.y * imgCanvas.height);
     const radius = Math.floor(faceNode.radiusRel * imgCanvas.width);
 
-    // 3 sub-regiões de amostragem relativas ao centro e raio do rosto:
-    // 1. Testa: ligeiramente acima do centro (y - radius * 0.45)
-    // 2. Bochecha Direita: lateral direita (x + radius * 0.4, y + radius * 0.1)
-    // 3. Queixo: inferior central (x, y + radius * 0.55)
+    // 4 sub-regiões de amostragem comprimidas para se manterem rigorosamente dentro do limite do rosto:
+    // 1. Testa: acima do centro (y - radius * 0.32)
+    // 2. Bochecha: lateral (x + radius * 0.28, y + radius * 0.05)
+    // 3. Queixo: inferior central (x, y + radius * 0.38)
+    // 4. Centro/Nosebridge: centralizado (x, y)
     const zones = [
-        { x: faceX, y: faceY - Math.floor(radius * 0.45), label: "Testa" },
-        { x: faceX + Math.floor(radius * 0.4), y: faceY + Math.floor(radius * 0.1), label: "Bochecha" },
-        { x: faceX, y: faceY + Math.floor(radius * 0.55), label: "Queixo" }
+        { x: faceX, y: faceY - Math.floor(radius * 0.32), label: "Testa" },
+        { x: faceX + Math.floor(radius * 0.28), y: faceY + Math.floor(radius * 0.05), label: "Bochecha" },
+        { x: faceX, y: faceY + Math.floor(radius * 0.38), label: "Queixo" },
+        { x: faceX, y: faceY, label: "Centro" }
     ];
 
     let totalR = 0, totalG = 0, totalB = 0, totalCount = 0;
@@ -546,7 +548,7 @@ function sampleSkinColor(faceNode) {
         const sizeY = Math.min(imgCanvas.height - startY, side);
 
         if (sizeX <= 0 || sizeY <= 0) {
-            zoneColors.push({ r: 210, g: 175, b: 155 });
+            zoneColors.push({ r: 215, g: 180, b: 160 });
             return;
         }
 
@@ -563,7 +565,11 @@ function sampleSkinColor(faceNode) {
                 // Filtragem de cabelos/sombras e destaques saturados (Skin Tone Masking)
                 const brightness = (r + g + b) / 3;
                 const isNotShadowOrHair = brightness > 35 && brightness < 242;
-                const isSkinRelation = r > g && g >= b - 10;
+
+                // Filtro Cromático Estrito de Pele Humana (Rejeita fundos beges/cinzas desaturados)
+                const diffRG = r - g;
+                const diffRB = r - b;
+                const isSkinRelation = diffRG >= 12 && g >= b - 5 && diffRB >= 18;
 
                 // Descartar reflexos e pontos de luz (alta luminosidade e baixíssima saturação cromática)
                 const maxVal = Math.max(r, g, b);
@@ -591,11 +597,11 @@ function sampleSkinColor(faceNode) {
             totalB += sumB;
             totalCount += count;
         } else {
-            const center = ctx.getImageData(zone.x, zone.y, 1, 1).data;
-            zoneColors.push({ r: center[0], g: center[1], b: center[2] });
-            totalR += center[0];
-            totalG += center[1];
-            totalB += center[2];
+            // Fallback seguro de pele humana biológica (tom pêssego/bege neutro de visagismo) para evitar fundos cinzas
+            zoneColors.push({ r: 215, g: 180, b: 160 });
+            totalR += 215;
+            totalG += 180;
+            totalB += 160;
             totalCount += 1;
         }
     });
@@ -679,7 +685,7 @@ function updateContrastUI(contrast) {
  */
 function sampleBodySkinColor(node) {
     const imgCanvas = document.getElementById("image-canvas");
-    if (!imgCanvas) return { r: 210, g: 175, b: 155 };
+    if (!imgCanvas) return null;
     const ctx = imgCanvas.getContext("2d");
     
     const px = Math.floor(node.x * imgCanvas.width);
@@ -702,13 +708,18 @@ function sampleBodySkinColor(node) {
             const brightness = (r + g + b) / 3;
             // Filtrar sombras escuras ou vestuário de alto brilho
             if (brightness > 30 && brightness < 246) {
-                // Pele humana biológica (vermelho > verde, e verde >= azul - 12)
+                // Filtro Cromático Estrito de Pele Humana (Rejeita fundos beges/cinzas desaturados)
+                const diffRG = r - g;
+                const diffRB = r - b;
+                const isSkinRelation = diffRG >= 12 && g >= b - 5 && diffRB >= 18;
+
+                // Descartar reflexos e pontos de luz
                 const maxVal = Math.max(r, g, b);
                 const minVal = Math.min(r, g, b);
                 const saturation = maxVal - minVal;
                 const isFlashHighlight = brightness > 210 && saturation < 25;
 
-                if (r > g && g >= b - 12 && !isFlashHighlight) {
+                if (isSkinRelation && !isFlashHighlight) {
                     sumR += r;
                     sumG += g;
                     sumB += b;
@@ -721,8 +732,7 @@ function sampleBodySkinColor(node) {
     if (count > 2) {
         return { r: Math.round(sumR / count), g: Math.round(sumG / count), b: Math.round(sumB / count) };
     } else {
-        // Fallback para amostragem central sutil
-        return sampleNodeColor(node, 4);
+        return null; // Retorna null indicando falha na detecção de pele humana biológica pura
     }
 }
 
