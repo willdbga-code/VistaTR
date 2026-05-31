@@ -118,6 +118,85 @@ class Scanner3DEngine {
     }
 
     /**
+     * Varre horizontalmente a partir de um centro e detecta a aresta da silhueta corporal (fim do corpo).
+     * Analisa cores em relação ao fundo amostrado nas bordas distantes da imagem.
+     */
+    scanSilhouetteEdge(ctx, width, height, relY, relCenterX, searchLeft) {
+        try {
+            const y = Math.floor(relY * height);
+            const centerX = Math.floor(relCenterX * width);
+            if (y < 0 || y >= height || centerX < 0 || centerX >= width) return null;
+
+            // Amostra a cor do fundo na lateral extrema com margem de segurança de 5 pixels
+            const bgX = searchLeft ? 5 : width - 5;
+            const bgPixel = ctx.getImageData(bgX, y, 1, 1).data;
+            const bgR = bgPixel[0];
+            const bgG = bgPixel[1];
+            const bgB = bgPixel[2];
+
+            // Direção e limites de varredura
+            const step = searchLeft ? -1 : 1;
+            const limit = searchLeft ? 0 : width - 1;
+
+            // Extrair linha completa de pixels para máxima performance e evitar múltiplos getImageData
+            const rowData = ctx.getImageData(0, y, width, 1).data;
+
+            const getPixel = (px) => {
+                const idx = px * 4;
+                return [rowData[idx], rowData[idx + 1], rowData[idx + 2]];
+            };
+
+            // Amostragem do ponto inicial (interior do corpo)
+            const startPixel = getPixel(centerX);
+            const startR = startPixel[0];
+            const startG = startPixel[1];
+            const startB = startPixel[2];
+
+            // Largura mínima do torso para evitar colapsar no eixo central (10% da largura total)
+            const minTorsoHalfWidth = Math.floor(width * 0.05);
+            const startScanX = centerX + step * minTorsoHalfWidth;
+
+            let detectedX = null;
+
+            for (let x = startScanX; searchLeft ? x >= limit : x <= limit; x += step) {
+                const [r, g, b] = getPixel(x);
+                
+                // Distância euclidiana para o fundo uniforme
+                const distToBg = Math.sqrt((r - bgR) ** 2 + (g - bgG) ** 2 + (b - bgB) ** 2);
+
+                // Condição de borda física:
+                // Se a cor do pixel atual estiver muito próxima do fundo uniforme (distToBg < 28)
+                if (distToBg < 28) {
+                    // Confirmação espacial de 4 pixels para descartar ruído isolado de imagem
+                    let isSolidBg = true;
+                    for (let k = 1; k <= 4; k++) {
+                        const testX = x + step * k;
+                        if (testX >= 0 && testX < width) {
+                            const [tr, tg, tb] = getPixel(testX);
+                            const tDist = Math.sqrt((tr - bgR) ** 2 + (tg - bgG) ** 2 + (tb - bgB) ** 2);
+                            if (tDist > 35) {
+                                isSolidBg = false;
+                                break;
+                            }
+                        }
+                    }
+                    if (isSolidBg) {
+                        detectedX = x;
+                        break;
+                    }
+                }
+            }
+
+            if (detectedX !== null) {
+                return detectedX / width;
+            }
+        } catch (e) {
+            console.warn("[Silhouette Scan] Falha ao escanear bordas por pixel (possível CORS local ou canvas vazio):", e);
+        }
+        return null;
+    }
+
+    /**
      * Mapeia as coordenadas absolutas de pontos identificados pela IA (BlazePose)
      * e atualiza os landmarks relativos do nosso motor de física local.
      */
@@ -213,11 +292,11 @@ class Scanner3DEngine {
             this.nodes.elbowR.y = relRElbow.y;
         }
 
-        // 4. Mapear Quadris com Expansão Lateral de 35% (Bordas Pélvicas e Contorno dos Culotes)
+        // 4. Mapear Quadris com Expansão Lateral de 48% (Bordas Pélvicas e Contorno dos Culotes)
         if (relLHip && relRHip) {
             const hipCenterX = (relLHip.x + relRHip.x) / 2;
-            this.nodes.hipL.x = hipCenterX - (hipCenterX - relLHip.x) * 1.35;
-            this.nodes.hipR.x = hipCenterX + (relRHip.x - hipCenterX) * 1.35;
+            this.nodes.hipL.x = hipCenterX - (hipCenterX - relLHip.x) * 1.48;
+            this.nodes.hipR.x = hipCenterX + (relRHip.x - hipCenterX) * 1.48;
             this.nodes.hipL.y = relLHip.y;
             this.nodes.hipR.y = relRHip.y;
         } else {
@@ -239,19 +318,96 @@ class Scanner3DEngine {
             }
         }
 
-        // Interpolar Cintura (63% quadril, 37% ombro)
+        // Interpolar Cintura (60% quadril, 40% ombro)
         if (this.nodes.shoulderL && this.nodes.hipL) {
             const shL = this.nodes.shoulderL;
             const shR = this.nodes.shoulderR;
             const hipL = this.nodes.hipL;
             const hipR = this.nodes.hipR;
 
-            this.nodes.waistL.x = hipL.x * 0.63 + shL.x * 0.37;
-            this.nodes.waistR.x = hipR.x * 0.63 + shR.x * 0.37;
+            this.nodes.waistL.x = hipL.x * 0.60 + shL.x * 0.40;
+            this.nodes.waistR.x = hipR.x * 0.60 + shR.x * 0.40;
+
+            // Compressão da cintura em 12% para silhueta acinturada natural
+            const waistCenterX = (this.nodes.waistL.x + this.nodes.waistR.x) / 2;
+            const waistHalfWidth = Math.abs(this.nodes.waistR.x - this.nodes.waistL.x) / 2;
+            const compressedHalfWidth = waistHalfWidth * 0.88;
+
+            this.nodes.waistL.x = waistCenterX - compressedHalfWidth;
+            this.nodes.waistR.x = waistCenterX + compressedHalfWidth;
 
             const defaultY = hipL.y * 0.61 + shL.y * 0.39;
             this.nodes.waistL.y = waistY || defaultY;
             this.nodes.waistR.y = waistY || defaultY;
+        }
+
+        // 5.5 AJUSTE DINÂMICO VIA PIXEL EDGE SCANNER (Arestas da Silhueta)
+        const imgCanvas = document.getElementById("image-canvas");
+        if (imgCanvas) {
+            try {
+                const imgCtx = imgCanvas.getContext("2d");
+                const w = imgCanvas.width;
+                const h = imgCanvas.height;
+
+                console.log("[Silhouette Scan] Iniciando varredura horizontal de pixels nas alturas de referência...");
+
+                // A. Escanear Ombros
+                if (this.nodes.shoulderL && this.nodes.shoulderR) {
+                    const shY = (this.nodes.shoulderL.y + this.nodes.shoulderR.y) / 2;
+                    const shCenterX = (this.nodes.shoulderL.x + this.nodes.shoulderR.x) / 2;
+                    
+                    const edgeL = this.scanSilhouetteEdge(imgCtx, w, h, shY, shCenterX, true);
+                    const edgeR = this.scanSilhouetteEdge(imgCtx, w, h, shY, shCenterX, false);
+                    
+                    if (edgeL !== null) {
+                        this.nodes.shoulderL.x = edgeL;
+                        console.log("[Silhouette Scan] Ombro Esquerdo ajustado para borda física:", edgeL.toFixed(3));
+                    }
+                    if (edgeR !== null) {
+                        this.nodes.shoulderR.x = edgeR;
+                        console.log("[Silhouette Scan] Ombro Direito ajustado para borda física:", edgeR.toFixed(3));
+                    }
+                }
+
+                // B. Escanear Quadril
+                if (this.nodes.hipL && this.nodes.hipR) {
+                    const hipY = (this.nodes.hipL.y + this.nodes.hipR.y) / 2;
+                    const hipCenterX = (this.nodes.hipL.x + this.nodes.hipR.x) / 2;
+
+                    const edgeL = this.scanSilhouetteEdge(imgCtx, w, h, hipY, hipCenterX, true);
+                    const edgeR = this.scanSilhouetteEdge(imgCtx, w, h, hipY, hipCenterX, false);
+
+                    if (edgeL !== null) {
+                        this.nodes.hipL.x = Math.max(0, edgeL - 0.005);
+                        console.log("[Silhouette Scan] Quadril Esquerdo ajustado para borda física:", edgeL.toFixed(3));
+                    }
+                    if (edgeR !== null) {
+                        this.nodes.hipR.x = Math.min(1.0, edgeR + 0.005);
+                        console.log("[Silhouette Scan] Quadril Direito ajustado para borda física:", edgeR.toFixed(3));
+                    }
+                }
+
+                // C. Escanear Cintura
+                if (this.nodes.waistL && this.nodes.waistR) {
+                    const waistY = (this.nodes.waistL.y + this.nodes.waistR.y) / 2;
+                    const waistCenterX = (this.nodes.waistL.x + this.nodes.waistR.x) / 2;
+
+                    const edgeL = this.scanSilhouetteEdge(imgCtx, w, h, waistY, waistCenterX, true);
+                    const edgeR = this.scanSilhouetteEdge(imgCtx, w, h, waistY, waistCenterX, false);
+
+                    if (edgeL !== null) {
+                        this.nodes.waistL.x = edgeL;
+                        console.log("[Silhouette Scan] Cintura Esquerda ajustada para borda física:", edgeL.toFixed(3));
+                    }
+                    if (edgeR !== null) {
+                        this.nodes.waistR.x = edgeR;
+                        console.log("[Silhouette Scan] Cintura Direita ajustada para borda física:", edgeR.toFixed(3));
+                    }
+                }
+
+            } catch (e) {
+                console.error("[Silhouette Scan] Erro ao executar silhouette scanner:", e);
+            }
         }
 
         // 5. Mapear Peito/Busto (Chest) - Centralizado e ligeiramente abaixo do ombro
@@ -307,7 +463,7 @@ class Scanner3DEngine {
         console.log("[BlazePose Import] Mapeamento corporal de 17 Landmarks concluído com sucesso!");
         this.redraw();
         this.triggerUpdate();
-        this.syncNodesToSliders();
+        this.syncNodesToSliders(true);
     }
 
     /**
@@ -426,8 +582,8 @@ class Scanner3DEngine {
         this.draggedNode = null;
     }
 
-    syncNodesToSliders() {
-        if (this.draggedNode && this.draggedNode !== "face") {
+    syncNodesToSliders(force = false) {
+        if (force || (this.draggedNode && this.draggedNode !== "face")) {
             const shWidth = Math.abs(this.nodes.shoulderR.x - this.nodes.shoulderL.x) * 125;
             const waWidth = Math.abs(this.nodes.waistR.x - this.nodes.waistL.x) * 125;
             const hipWidth = Math.abs(this.nodes.hipR.x - this.nodes.hipL.x) * 125;
