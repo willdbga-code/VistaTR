@@ -326,13 +326,18 @@ class Scanner3DEngine {
             this.nodes.waistL.x = hipL.x * 0.60 + shL.x * 0.40;
             this.nodes.waistR.x = hipR.x * 0.60 + shR.x * 0.40;
 
-            // Compressão da cintura em 12% para silhueta acinturada natural
+            // Compressão da cintura em 12% para silhueta acinturada natural preservando os lados corretos
             const waistCenterX = (this.nodes.waistL.x + this.nodes.waistR.x) / 2;
             const waistHalfWidth = Math.abs(this.nodes.waistR.x - this.nodes.waistL.x) / 2;
             const compressedHalfWidth = waistHalfWidth * 0.88;
 
-            this.nodes.waistL.x = waistCenterX - compressedHalfWidth;
-            this.nodes.waistR.x = waistCenterX + compressedHalfWidth;
+            if (this.nodes.waistL.x < this.nodes.waistR.x) {
+                this.nodes.waistL.x = waistCenterX - compressedHalfWidth;
+                this.nodes.waistR.x = waistCenterX + compressedHalfWidth;
+            } else {
+                this.nodes.waistL.x = waistCenterX + compressedHalfWidth;
+                this.nodes.waistR.x = waistCenterX - compressedHalfWidth;
+            }
 
             const defaultY = hipL.y * 0.61 + shL.y * 0.39;
             this.nodes.waistL.y = waistY || defaultY;
@@ -354,8 +359,9 @@ class Scanner3DEngine {
                     const shY = (this.nodes.shoulderL.y + this.nodes.shoulderR.y) / 2;
                     const shCenterX = (this.nodes.shoulderL.x + this.nodes.shoulderR.x) / 2;
                     
-                    const edgeL = this.scanSilhouetteEdge(imgCtx, w, h, shY, shCenterX, true, this.nodes.shoulderL.x);
-                    const edgeR = this.scanSilhouetteEdge(imgCtx, w, h, shY, shCenterX, false, this.nodes.shoulderR.x);
+                    const shLIsOnLeft = this.nodes.shoulderL.x < shCenterX;
+                    const edgeL = this.scanSilhouetteEdge(imgCtx, w, h, shY, shCenterX, shLIsOnLeft, this.nodes.shoulderL.x);
+                    const edgeR = this.scanSilhouetteEdge(imgCtx, w, h, shY, shCenterX, !shLIsOnLeft, this.nodes.shoulderR.x);
                     
                     if (edgeL !== null) {
                         this.nodes.shoulderL.x = edgeL;
@@ -372,8 +378,9 @@ class Scanner3DEngine {
                     const hipY = (this.nodes.hipL.y + this.nodes.hipR.y) / 2;
                     const hipCenterX = (this.nodes.hipL.x + this.nodes.hipR.x) / 2;
 
-                    const edgeL = this.scanSilhouetteEdge(imgCtx, w, h, hipY, hipCenterX, true, this.nodes.hipL.x);
-                    const edgeR = this.scanSilhouetteEdge(imgCtx, w, h, hipY, hipCenterX, false, this.nodes.hipR.x);
+                    const hipLIsOnLeft = this.nodes.hipL.x < hipCenterX;
+                    const edgeL = this.scanSilhouetteEdge(imgCtx, w, h, hipY, hipCenterX, hipLIsOnLeft, this.nodes.hipL.x);
+                    const edgeR = this.scanSilhouetteEdge(imgCtx, w, h, hipY, hipCenterX, !hipLIsOnLeft, this.nodes.hipR.x);
 
                     if (edgeL !== null) {
                         this.nodes.hipL.x = Math.max(0, edgeL - 0.005);
@@ -390,8 +397,9 @@ class Scanner3DEngine {
                     const waistY = (this.nodes.waistL.y + this.nodes.waistR.y) / 2;
                     const waistCenterX = (this.nodes.waistL.x + this.nodes.waistR.x) / 2;
 
-                    const edgeL = this.scanSilhouetteEdge(imgCtx, w, h, waistY, waistCenterX, true, this.nodes.waistL.x);
-                    const edgeR = this.scanSilhouetteEdge(imgCtx, w, h, waistY, waistCenterX, false, this.nodes.waistR.x);
+                    const waistLIsOnLeft = this.nodes.waistL.x < waistCenterX;
+                    const edgeL = this.scanSilhouetteEdge(imgCtx, w, h, waistY, waistCenterX, waistLIsOnLeft, this.nodes.waistL.x);
+                    const edgeR = this.scanSilhouetteEdge(imgCtx, w, h, waistY, waistCenterX, !waistLIsOnLeft, this.nodes.waistR.x);
 
                     if (edgeL !== null) {
                         this.nodes.waistL.x = edgeL;
