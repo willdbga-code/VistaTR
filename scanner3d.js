@@ -183,11 +183,11 @@ class Scanner3DEngine {
             this.nodes.face.y = Math.max(0.05, relNose.y - 0.03);
         }
         
-        // 2. Mapear Ombros com Expansão Lateral de 6% (Deltoides)
+        // 2. Mapear Ombros com Expansão Lateral de 18% (Deltoides Externos)
         if (relLSh && relRSh) {
             const shCenterX = (relLSh.x + relRSh.x) / 2;
-            this.nodes.shoulderL.x = shCenterX - (shCenterX - relLSh.x) * 1.06;
-            this.nodes.shoulderR.x = shCenterX + (relRSh.x - shCenterX) * 1.06;
+            this.nodes.shoulderL.x = shCenterX - (shCenterX - relLSh.x) * 1.18;
+            this.nodes.shoulderR.x = shCenterX + (relRSh.x - shCenterX) * 1.18;
             this.nodes.shoulderL.y = relLSh.y;
             this.nodes.shoulderR.y = relRSh.y;
         } else {
@@ -213,11 +213,11 @@ class Scanner3DEngine {
             this.nodes.elbowR.y = relRElbow.y;
         }
 
-        // 4. Mapear Quadris com Expansão Lateral de 6% (Bordas Pélvicas)
+        // 4. Mapear Quadris com Expansão Lateral de 35% (Bordas Pélvicas e Contorno dos Culotes)
         if (relLHip && relRHip) {
             const hipCenterX = (relLHip.x + relRHip.x) / 2;
-            this.nodes.hipL.x = hipCenterX - (hipCenterX - relLHip.x) * 1.06;
-            this.nodes.hipR.x = hipCenterX + (relRHip.x - hipCenterX) * 1.06;
+            this.nodes.hipL.x = hipCenterX - (hipCenterX - relLHip.x) * 1.35;
+            this.nodes.hipR.x = hipCenterX + (relRHip.x - hipCenterX) * 1.35;
             this.nodes.hipL.y = relLHip.y;
             this.nodes.hipR.y = relRHip.y;
         } else {
