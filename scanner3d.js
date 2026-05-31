@@ -118,72 +118,70 @@ class Scanner3DEngine {
     }
 
     /**
-     * Varre horizontalmente a partir de um centro e detecta a aresta da silhueta corporal (fim do corpo).
-     * Analisa cores em relação ao fundo amostrado nas bordas distantes da imagem.
+     * Varre horizontalmente a partir do fundo local em direção ao centro do corpo (varredura interna).
+     * Evita sombras e gradientes nas bordas distantes da imagem amostrando o fundo localmente.
      */
-    scanSilhouetteEdge(ctx, width, height, relY, relCenterX, searchLeft) {
+    scanSilhouetteEdge(ctx, width, height, relY, relCenterX, searchLeft, relEstX) {
         try {
             const y = Math.floor(relY * height);
             const centerX = Math.floor(relCenterX * width);
             if (y < 0 || y >= height || centerX < 0 || centerX >= width) return null;
 
-            // Amostra a cor do fundo na lateral extrema com margem de segurança de 5 pixels
-            const bgX = searchLeft ? 5 : width - 5;
-            const bgPixel = ctx.getImageData(bgX, y, 1, 1).data;
-            const bgR = bgPixel[0];
-            const bgG = bgPixel[1];
-            const bgB = bgPixel[2];
+            // Offset de 9% da largura para amostrar o fundo local logo ao lado do corpo
+            const localBgOffset = Math.floor(width * 0.09);
+            
+            let startX;
+            let step;
+            if (searchLeft) {
+                // Para o lado esquerdo: começamos no fundo (à esquerda do estX) e varremos para a direita (inwards)
+                startX = Math.floor(relEstX * width) - localBgOffset;
+                step = 1;
+            } else {
+                // Para o lado direito: começamos no fundo (à direita do estX) e varremos para a esquerda (inwards)
+                startX = Math.floor(relEstX * width) + localBgOffset;
+                step = -1;
+            }
 
-            // Direção e limites de varredura
-            const step = searchLeft ? -1 : 1;
-            const limit = searchLeft ? 0 : width - 1;
+            // Clampar limites
+            startX = Math.min(width - 5, Math.max(4, startX));
 
-            // Extrair linha completa de pixels para máxima performance e evitar múltiplos getImageData
+            // Amostrar a cor do fundo local (média de 3 pixels horizontais para evitar ruídos)
+            let bgR = 0, bgG = 0, bgB = 0;
+            for (let k = -1; k <= 1; k++) {
+                const bgPixel = ctx.getImageData(startX + k, y, 1, 1).data;
+                bgR += bgPixel[0];
+                bgG += bgPixel[1];
+                bgB += bgPixel[2];
+            }
+            bgR = Math.round(bgR / 3);
+            bgG = Math.round(bgG / 3);
+            bgB = Math.round(bgB / 3);
+
+            // Obter linha de pixels para velocidade
             const rowData = ctx.getImageData(0, y, width, 1).data;
-
             const getPixel = (px) => {
                 const idx = px * 4;
                 return [rowData[idx], rowData[idx + 1], rowData[idx + 2]];
             };
 
-            // Amostragem do ponto inicial (interior do corpo)
-            const startPixel = getPixel(centerX);
-            const startR = startPixel[0];
-            const startG = startPixel[1];
-            const startB = startPixel[2];
-
-            // Largura mínima do torso para evitar colapsar no eixo central (10% da largura total)
-            const minTorsoHalfWidth = Math.floor(width * 0.05);
-            const startScanX = centerX + step * minTorsoHalfWidth;
-
             let detectedX = null;
+            let consecutiveHits = 0;
+            const threshold = 22;
 
-            for (let x = startScanX; searchLeft ? x >= limit : x <= limit; x += step) {
+            // Varrer de startX em direção ao centro (centerX)
+            for (let x = startX; searchLeft ? x <= centerX : x >= centerX; x += step) {
                 const [r, g, b] = getPixel(x);
-                
-                // Distância euclidiana para o fundo uniforme
-                const distToBg = Math.sqrt((r - bgR) ** 2 + (g - bgG) ** 2 + (b - bgB) ** 2);
+                const dist = Math.sqrt((r - bgR) ** 2 + (g - bgG) ** 2 + (b - bgB) ** 2);
 
-                // Condição de borda física:
-                // Se a cor do pixel atual estiver muito próxima do fundo uniforme (distToBg < 28)
-                if (distToBg < 28) {
-                    // Confirmação espacial de 4 pixels para descartar ruído isolado de imagem
-                    let isSolidBg = true;
-                    for (let k = 1; k <= 4; k++) {
-                        const testX = x + step * k;
-                        if (testX >= 0 && testX < width) {
-                            const [tr, tg, tb] = getPixel(testX);
-                            const tDist = Math.sqrt((tr - bgR) ** 2 + (tg - bgG) ** 2 + (tb - bgB) ** 2);
-                            if (tDist > 35) {
-                                isSolidBg = false;
-                                break;
-                            }
-                        }
-                    }
-                    if (isSolidBg) {
-                        detectedX = x;
+                if (dist > threshold) {
+                    consecutiveHits++;
+                    if (consecutiveHits >= 3) {
+                        // A aresta física é o início da transição (2 pixels atrás da detecção estável)
+                        detectedX = x - step * 2;
                         break;
                     }
+                } else {
+                    consecutiveHits = 0;
                 }
             }
 
@@ -191,7 +189,7 @@ class Scanner3DEngine {
                 return detectedX / width;
             }
         } catch (e) {
-            console.warn("[Silhouette Scan] Falha ao escanear bordas por pixel (possível CORS local ou canvas vazio):", e);
+            console.warn("[Silhouette Scan] Falha ao escanear bordas localmente:", e);
         }
         return null;
     }
@@ -356,8 +354,8 @@ class Scanner3DEngine {
                     const shY = (this.nodes.shoulderL.y + this.nodes.shoulderR.y) / 2;
                     const shCenterX = (this.nodes.shoulderL.x + this.nodes.shoulderR.x) / 2;
                     
-                    const edgeL = this.scanSilhouetteEdge(imgCtx, w, h, shY, shCenterX, true);
-                    const edgeR = this.scanSilhouetteEdge(imgCtx, w, h, shY, shCenterX, false);
+                    const edgeL = this.scanSilhouetteEdge(imgCtx, w, h, shY, shCenterX, true, this.nodes.shoulderL.x);
+                    const edgeR = this.scanSilhouetteEdge(imgCtx, w, h, shY, shCenterX, false, this.nodes.shoulderR.x);
                     
                     if (edgeL !== null) {
                         this.nodes.shoulderL.x = edgeL;
@@ -374,8 +372,8 @@ class Scanner3DEngine {
                     const hipY = (this.nodes.hipL.y + this.nodes.hipR.y) / 2;
                     const hipCenterX = (this.nodes.hipL.x + this.nodes.hipR.x) / 2;
 
-                    const edgeL = this.scanSilhouetteEdge(imgCtx, w, h, hipY, hipCenterX, true);
-                    const edgeR = this.scanSilhouetteEdge(imgCtx, w, h, hipY, hipCenterX, false);
+                    const edgeL = this.scanSilhouetteEdge(imgCtx, w, h, hipY, hipCenterX, true, this.nodes.hipL.x);
+                    const edgeR = this.scanSilhouetteEdge(imgCtx, w, h, hipY, hipCenterX, false, this.nodes.hipR.x);
 
                     if (edgeL !== null) {
                         this.nodes.hipL.x = Math.max(0, edgeL - 0.005);
@@ -392,8 +390,8 @@ class Scanner3DEngine {
                     const waistY = (this.nodes.waistL.y + this.nodes.waistR.y) / 2;
                     const waistCenterX = (this.nodes.waistL.x + this.nodes.waistR.x) / 2;
 
-                    const edgeL = this.scanSilhouetteEdge(imgCtx, w, h, waistY, waistCenterX, true);
-                    const edgeR = this.scanSilhouetteEdge(imgCtx, w, h, waistY, waistCenterX, false);
+                    const edgeL = this.scanSilhouetteEdge(imgCtx, w, h, waistY, waistCenterX, true, this.nodes.waistL.x);
+                    const edgeR = this.scanSilhouetteEdge(imgCtx, w, h, waistY, waistCenterX, false, this.nodes.waistR.x);
 
                     if (edgeL !== null) {
                         this.nodes.waistL.x = edgeL;
