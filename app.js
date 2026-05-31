@@ -886,16 +886,24 @@ function resetScanner() {
 /**
  * INTEGRACÃO DE WEBCAM AO VIVO
  */
+let webcamFacingMode = "user"; // "user" para selfie (frontal), "environment" para traseira
+
 async function startWebcamCapture() {
     const webcamContainer = document.getElementById("webcam-container");
     const video = document.getElementById("webcam-video");
     
     if (!webcamContainer || !video) return;
 
+    // Se já estiver rodando, parar stream atual antes de reiniciar
+    if (webcamStream) {
+        webcamStream.getTracks().forEach(track => track.stop());
+        webcamStream = null;
+    }
+
     try {
         webcamStream = await navigator.mediaDevices.getUserMedia({
             video: {
-                facingMode: "user",
+                facingMode: webcamFacingMode,
                 width: { ideal: 1280 },
                 height: { ideal: 720 }
             },
@@ -903,11 +911,25 @@ async function startWebcamCapture() {
         });
         
         video.srcObject = webcamStream;
+        
+        // Espelhar a visualização apenas no modo de câmera frontal (selfie)
+        if (webcamFacingMode === "user") {
+            video.style.transform = "scaleX(-1)";
+        } else {
+            video.style.transform = "none";
+        }
+        
         webcamContainer.style.display = "flex";
     } catch (err) {
         console.error("Erro ao acessar a webcam local:", err);
         alert("Não foi possível acessar a câmera. Verifique as permissões do navegador e tente novamente.");
     }
+}
+
+async function toggleWebcamFacingMode() {
+    webcamFacingMode = webcamFacingMode === "user" ? "environment" : "user";
+    console.log("[Webcam] Alternando câmera para:", webcamFacingMode);
+    await startWebcamCapture(); // Reinicia a captura ao vivo com a nova câmera selecionada
 }
 
 function stopWebcamCapture() {
@@ -939,9 +961,11 @@ function captureWebcamPhoto() {
     
     const tempCtx = tempCanvas.getContext("2d");
     
-    // Espelhar a imagem capturada para alinhar com o visual da câmera frontal
-    tempCtx.translate(tempCanvas.width, 0);
-    tempCtx.scale(-1, 1);
+    // Espelhar a imagem capturada para alinhar com o visual da câmera frontal se estiver em modo selfie (user)
+    if (webcamFacingMode === "user") {
+        tempCtx.translate(tempCanvas.width, 0);
+        tempCtx.scale(-1, 1);
+    }
     tempCtx.drawImage(video, 0, 0, tempCanvas.width, tempCanvas.height);
 
     // Salvar como uma nova imagem de controle
